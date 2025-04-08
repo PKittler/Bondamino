@@ -178,14 +178,21 @@ def create_protein_graph(pdb_filepath, model_id=0, label_type='atom_name', outpu
 
                     # avoid that the edge is not added twice
                     edge_tuple = tuple(sorted((node1_id, node2_id)))
-                    if edge_tuple not in added_edges:
-                        distance = np.linalg.norm(atom1.get_coord() - atom2.get_coord())
-                        edge_label = f"{distance:.2f} Å"
 
-                        G.add_edge(node1_id, node2_id, length=distance, label=edge_label)
-                        pv_network.add_edge(node1_id, node2_id, title=edge_label, value=distance,
-                                             label=edge_label if len(G.edges) < 200 else None)
-                        added_edges.add(edge_tuple)
+                    if edge_tuple not in added_edges:
+
+                        try:
+                            distance_np = np.linalg.norm(atom1.get_coord() - atom2.get_coord())
+                            distance = float(distance_np)
+                            edge_label = f"{distance:.2f} Å"
+
+                            G.add_edge(node1_id, node2_id, length=distance, label=edge_label)
+                            pv_network.add_edge(node1_id, node2_id, title=edge_label, value=distance,
+                                                 label=edge_label if edges_added < 300 else None)
+                            added_edges.add(edge_tuple)
+                            edges_added += 1
+                        except Exception as e:
+                             print(f"Error in edge calculation: {node1_id} <-> {node2_id} : {e}")
 
         # peptide bonds (between C of this residue and N from the next residue)
         if Bio.PDB.is_aa(residue, standard=True) and i + 1 < len(residue_list):
@@ -206,15 +213,19 @@ def create_protein_graph(pdb_filepath, model_id=0, label_type='atom_name', outpu
 
                         edge_tuple = tuple(sorted((node_C_id, node_N_id)))
                         if edge_tuple not in added_edges:
-                            distance = np.linalg.norm(atom_C.get_coord() - atom_N.get_coord())
-                            if 1.2 < distance < 1.5:
-                                edge_label = f"{distance:.2f} Å"
-                                G.add_edge(node_C_id, node_N_id, length=distance, label=edge_label)
-                                pv_network.add_edge(node_C_id, node_N_id, title=edge_label, value=distance,
-                                                    # peptide bond color
-                                                     label=edge_label if len(G.edges) < 200 else None, color = '#A0A0A0')
-                                added_edges.add(edge_tuple)
+                            try:
+                                distance_np = np.linalg.norm(atom_C.get_coord() - atom_N.get_coord())
+                                distance = float(distance_np)
 
+                                if 1.2 < distance < 1.5:
+                                    edge_label = f"{distance:.2f} Å"
+                                    G.add_edge(node_C_id, node_N_id, length=distance, label=edge_label)
+                                    pv_network.add_edge(node_C_id, node_N_id, title=edge_label, value=distance,
+                                        label=edge_label if edges_added < 300 else None, color='#A0A0A0')
+                                    added_edges.add(edge_tuple)
+                                    edges_added += 1
+                            except Exception as e:
+                                print(f"Error with peptide bond: {node_C_id} <-> {node_N_id} : {e}")
         pass
 
     # adapt visualization and save it
