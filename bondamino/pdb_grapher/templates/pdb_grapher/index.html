@@ -1,0 +1,13 @@
+{% extends "pdb_grapher/base.html" %}
+
+{% block title %}PDB Graph Generator{% endblock %}
+
+{% block content %}
+<h1>PDB Structure for Graph</h1>
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Upload file and choose an option</button>
+</form>
+{% endblock %}
