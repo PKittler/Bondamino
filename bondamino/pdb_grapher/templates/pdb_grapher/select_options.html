@@ -1,0 +1,17 @@
+{% extends "pdb_grapher/base.html" %}
+
+{% block title %}Choose option{% endblock %}
+
+{% block content %}
+<h1>Options for {{ pdb_instance.original_filename }}</h1>
+
+<p>PDB file contains {{ pdb_instance.num_models }} model(s).</p>
+
+<form method="post" action="{% url 'pdb_grapher:process_pdb' pdb_file_id=pdb_instance.id %}">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Generate Graph</button>
+</form>
+<br>
+<a href="{% url 'pdb_grapher:index' %}">Uploade another file</a>
+{% endblock %}
