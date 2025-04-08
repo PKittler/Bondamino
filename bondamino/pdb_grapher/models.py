@@ -31,7 +31,7 @@ class PDBFile(models.Model):
 
 class GeneratedGraph(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    pdb_file = models.ForeignKey(PdbFile, on_delete=models.CASCADE, related_name='graphs')
+    pdb_file = models.ForeignKey(PDBFile, on_delete=models.CASCADE, related_name='graphs')
     model_id_used = models.IntegerField()
     label_type_used = models.CharField(max_length=20) # 'atom_name' or 'element'
     graph_html_file = models.FileField(upload_to=graph_upload_path)
