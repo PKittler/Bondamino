@@ -222,8 +222,8 @@ def create_protein_graph(pdb_filepath, model_id=0, label_type='atom_name', outpu
     if nodes_added == 0:
         return None, f"No atoms in selected model ({model_id})."
 
-    pv_network.set_options("""
-        var options = {
+    options_json = """
+        {
           "nodes": {
             "font": {
               "size": 10
@@ -231,55 +231,63 @@ def create_protein_graph(pdb_filepath, model_id=0, label_type='atom_name', outpu
           },
           "edges": {
             "color": {
-              "inherit": true // Kantenfarbe von Knoten erben (kann überschrieben werden)
+              "inherit": true
             },
-            "smooth": { // Kann helfen bei überlappenden Kanten, kann aber langsam sein
+            "smooth": {
                "enabled": true,
-               "type": "dynamic", // "continuous" oder "dynamic"
+               "type": "dynamic",
                "roundness": 0.5
              },
              "font": {
                   "size": 8,
-                  "align": "top" // Position des Kantenlabels
+                  "align": "top"
                 }
           },
-          "physics": { // Layout-Algorithmus
-            "enabled": true, // Aktiviert Physik-Simulation für Layout
-            "barnesHut": { // Ein gängiger Algorithmus
+          "physics": {
+            "enabled": true,
+            "barnesHut": {
               "gravitationalConstant": -8000,
               "centralGravity": 0.3,
-              "springLength": 100, // Beeinflusst nicht direkt die Kantenlänge basierend auf 'length'
+              "springLength": 100,
               "springConstant": 0.04,
               "damping": 0.09,
-              "avoidOverlap": 0.1 // Versucht Knotenüberlappung zu vermeiden
+              "avoidOverlap": 0.1
             },
-            "solver": "barnesHut", // Alternativen: "forceAtlas2Based", "repulsion"
-             "stabilization": { // Versucht das Layout zu stabilisieren
+            "solver": "barnesHut",
+             "stabilization": {
                 "enabled": true,
                 "iterations": 1000,
                 "updateInterval": 50
               }
           },
           "interaction": {
-            "tooltipDelay": 200, // Verzögerung für Tooltips (ms)
-            "hideEdgesOnDrag": true, // Kanten beim Ziehen ausblenden (Performance)
-            "navigationButtons": true, // Zoom/Navigationsbuttons
-            "keyboard": true // Tastaturnavigation
+            "tooltipDelay": 200,
+            "hideEdgesOnDrag": true,
+            "navigationButtons": true,
+            "keyboard": true
           }
         }
-        """)
+        """
 
     try:
+        pv_network.set_options(options_json)
+    except Exception as e:
+         print(f"WARNING: Couldn't set PyVis options: {e}")
+
+
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        output_html_path = os.path.join(output_dir, f"{uuid.uuid4().hex}.html")
+
         pv_network.save_graph(output_html_path)
-        print(f"Interactive Graph temporarily saved as: {output_html_path}")
+        print(f"Interactive Graph saved temporarily as: {output_html_path}")
         return output_html_path, None
     except Exception as e:
-        print(f"Error while saving HTML file {output_html_path}: {e}")
-        # delete if there is and partially created file
-        if os.path.exists(output_html_path):
+        print(f"Error when saving the HTML file {output_html_path}: {e}")
+        if 'output_html_path' in locals() and os.path.exists(output_html_path):
              try: os.remove(output_html_path)
              except OSError: pass
-        return None, f"Error while saving the graph HTML file: {e}"
+        return None, f"Error when saving the graph HTML file: {e}"
 
 def index_view(request):
     if request.method == 'POST':
