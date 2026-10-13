@@ -1,5 +1,7 @@
+import json
 import math
 import statistics
+from pathlib import Path
 
 BACKBONE_BONDS = [('N', 'CA'), ('CA', 'C'), ('C', 'O'), ('C', 'OXT')]
 
@@ -35,49 +37,89 @@ SIDECHAIN_BONDS = {
     'VAL': [('CA', 'CB'), ('CB', 'CG1'), ('CB', 'CG2')],
 }
 
-# Referenzwerte (Mittelwert, Standardabweichung in Å) nach Engh & Huber (1991), Acta Cryst.
-# A47, 392–400: Rückgrat und CA–CB. Seitenketten-Bindungen jenseits von CB haben (noch)
-# keine Referenz. Schlüssel: Atompaar und Klasse des Residuums; bei der Peptidbindung C–N
-# entscheidet das folgende Residuum (vor Prolin abweichend).
-REFERENCE_SOURCE = 'Engh & Huber (1991), Acta Cryst. A47, 392–400'
-REFERENCE_VALUES = {
-    ('N', 'CA', 'GLY'): (1.451, 0.016),
-    ('N', 'CA', 'PRO'): (1.466, 0.015),
-    ('N', 'CA', 'other'): (1.458, 0.019),
-    ('CA', 'C', 'GLY'): (1.516, 0.018),
-    ('CA', 'C', 'other'): (1.525, 0.021),
-    ('C', 'O', 'all'): (1.231, 0.020),
-    ('C', 'N', 'PRO'): (1.341, 0.016),
-    ('C', 'N', 'other'): (1.329, 0.014),
-    ('CA', 'CB', 'ALA'): (1.521, 0.033),
-    ('CA', 'CB', 'IVT'): (1.540, 0.027),
-    ('CA', 'CB', 'other'): (1.530, 0.020),
+# Referenzwerte (Mittelwert, Standardabweichung) für Bindungslängen (Å) und Bindungswinkel (°).
+# Rückgrat: Engh & Huber (2001) mit den Zuordnungsregeln aus Dangle (Richardson-Labor,
+# BSD-3-Clause); Seitenketten: CCP4 Monomer Library (LGPL-3.0). Herkunft und Lizenzen
+# stehen in reference_data/README.md.
+REFERENCE_SOURCES = {
+    'backbone': 'Engh & Huber (2001), International Tables for Crystallography F, 382–392',
+    'sidechain': 'CCP4 Monomer Library',
 }
+REFERENCE_DATA_DIR = Path(__file__).resolve().parent / 'reference_data'
+BACKBONE_ATOMS = {'N', 'CA', 'C', 'O', 'OXT'}
+
+# Klassen: das Residuum selbst ('GLY', 'PRO'), über die Peptidbindung das folgende
+# ('X-GLY', 'X-PRO', 'cis-X-PRO' bei cis-Peptidbindung) oder das vorige ('GLY-X');
+# 'other' gilt sonst. Die erste passende Klasse in der Liste gilt (Vorrang wie in Dangle).
+BACKBONE_BOND_REFERENCES = {
+    ('N', 'CA'): [('GLY', 1.456, 0.015), ('PRO', 1.468, 0.017), ('other', 1.459, 0.020)],
+    ('CA', 'C'): [('GLY', 1.514, 0.016), ('PRO', 1.524, 0.020), ('other', 1.525, 0.026)],
+    ('C', 'O'): [('GLY', 1.232, 0.016), ('PRO', 1.228, 0.020), ('other', 1.229, 0.019)],
+    ('C', 'N'): [('X-GLY', 1.326, 0.018), ('X-PRO', 1.338, 0.019), ('other', 1.336, 0.023)],
+}
+# Atome in Reihenfolge vorheriges Residuum -> folgendes (C–N ist die Peptidbindung)
+BACKBONE_ANGLE_REFERENCES = {
+    ('N', 'CA', 'C'): [('GLY', 113.1, 2.5), ('PRO', 112.1, 2.6), ('other', 111.0, 2.7)],
+    ('CA', 'C', 'O'): [('GLY', 120.6, 1.8), ('PRO', 120.2, 2.4), ('other', 120.1, 2.1)],
+    ('CA', 'C', 'N'): [('GLY-X', 116.2, 2.0), ('X-PRO', 117.1, 2.8), ('other', 117.2, 2.2)],
+    ('O', 'C', 'N'): [('X-PRO', 121.1, 1.9), ('GLY-X', 123.2, 1.7), ('other', 122.7, 1.6)],
+    ('C', 'N', 'CA'): [('cis-X-PRO', 127.0, 2.4), ('X-PRO', 119.3, 1.5), ('X-GLY', 122.3, 2.1), ('other', 121.7, 2.5)],
+}
+CIS_MAX_OMEGA = 30  # |ω| < 30°: cis-Peptidbindung (wie im Browser)
 
 
-def _reference(atom1, atom2, bond_type, res_class, next_class=None):
+def _load_sidechain_references():
+    """Seitenketten-Referenzen je Aminosäure (eigener Residuenname, auch modifizierte):
+    Bindungen {(Residuum, {Atom, Atom}): [...]}, Winkel {(Residuum, Mitte, {Ende, Ende}): [...]}."""
+    data = json.loads((REFERENCE_DATA_DIR / 'ccp4_sidechains.json').read_text(encoding='utf-8'))['residues']
+    bonds, angles = {}, {}
+    for res, entry in data.items():
+        for a, b, mean, sigma in entry['bonds']:
+            bonds[(res, frozenset((a, b)))] = [mean, sigma, f'{res}:{a}-{b}']
+        for a, center, c, mean, sigma in entry['angles']:
+            angles[(res, center, frozenset((a, c)))] = [mean, sigma, f'{res}:{a}-{center}-{c}']
+    return bonds, angles
+
+
+SIDECHAIN_BOND_REFERENCES, SIDECHAIN_ANGLE_REFERENCES = _load_sidechain_references()
+
+
+def _classes(own=None, prev=None, next_=None, cis=False):
+    """Zutreffende Klassen (siehe BACKBONE_BOND_REFERENCES) für ein Residuum bzw. eine Peptidbindung."""
+    classes = {'other'}
+    if own in ('GLY', 'PRO'):
+        classes.add(own)
+    if prev == 'GLY':
+        classes.add('GLY-X')
+    if next_ in ('GLY', 'PRO'):
+        classes.add(f'X-{next_}')
+        if next_ == 'PRO' and cis:
+            classes.add('cis-X-PRO')
+    return classes
+
+
+def _backbone_reference(table, atoms, classes):
+    """Erster passender Rückgrat-Referenzwert als [Mittelwert, Standardabweichung, Gruppe] oder None."""
+    for cls, mean, sigma in table.get(atoms, []):
+        if cls in classes:
+            return [mean, sigma, f"backbone:{'-'.join(atoms)}:{cls}"]
+    return None
+
+
+def _reference(atom1, atom2, bond_type, res_name, res_class, next_class=None):
     """Referenz einer Bindung als [Mittelwert, Standardabweichung, Gruppe] oder None.
-    `res_class` ist der Name der (Ausgangs-)Aminosäure des Residuums, `next_class` der des
-    folgenden Residuums (nur für die Peptidbindung)."""
+    `res_name` ist der Name des Residuums, `res_class` der seiner (Ausgangs-)Aminosäure,
+    `next_class` der des folgenden Residuums (nur für die Peptidbindung)."""
+    if bond_type == 'peptide':
+        if res_class not in SIDECHAIN_BONDS or next_class not in SIDECHAIN_BONDS:
+            return None
+        return _backbone_reference(BACKBONE_BOND_REFERENCES, ('C', 'N'), _classes(next_=next_class))
+    if {atom1, atom2} - BACKBONE_ATOMS:
+        return SIDECHAIN_BOND_REFERENCES.get((res_name, frozenset((atom1, atom2))))
     if res_class not in SIDECHAIN_BONDS:
         return None  # keine Aminosäure oder modifizierte ohne bekannte Ausgangs-Aminosäure
-    pair = {atom1, atom2}
-    if bond_type == 'peptide':
-        if next_class not in SIDECHAIN_BONDS:
-            return None
-        key = ('C', 'N', 'PRO' if next_class == 'PRO' else 'other')
-    elif pair == {'N', 'CA'}:
-        key = ('N', 'CA', res_class if res_class in ('GLY', 'PRO') else 'other')
-    elif pair == {'CA', 'C'}:
-        key = ('CA', 'C', 'GLY' if res_class == 'GLY' else 'other')
-    elif pair == {'C', 'O'}:
-        key = ('C', 'O', 'all')
-    elif pair == {'CA', 'CB'}:
-        key = ('CA', 'CB', 'ALA' if res_class == 'ALA' else 'IVT' if res_class in ('ILE', 'VAL', 'THR') else 'other')
-    else:
-        return None
-    mean, sigma = REFERENCE_VALUES[key]
-    return [mean, sigma, ':'.join(key)]
+    atoms = (atom1, atom2) if (atom1, atom2) in BACKBONE_BOND_REFERENCES else (atom2, atom1)
+    return _backbone_reference(BACKBONE_BOND_REFERENCES, atoms, _classes(own=res_class))
 
 
 def parse_header(file_path):
@@ -447,7 +489,8 @@ def _iter_bonds(residues):
             for a1n, a2n in bonds:
                 if a1n in atoms and a2n in atoms:
                     yield (atom_id(chain_id, res_seq, i_code, a1n), atom_id(chain_id, res_seq, i_code, a2n),
-                           bond_type, _distance(atoms[a1n], atoms[a2n]), _reference(a1n, a2n, bond_type, res_class))
+                           bond_type, _distance(atoms[a1n], atoms[a2n]),
+                           _reference(a1n, a2n, bond_type, res_name, res_class))
 
         if i + 1 < len(ordered_keys):
             next_key = ordered_keys[i + 1]
@@ -457,10 +500,71 @@ def _iter_bonds(residues):
                 if length <= MAX_PEPTIDE_BOND_LENGTH:
                     yield (atom_id(chain_id, res_seq, i_code, 'C'), atom_id(next_chain, next_seq, next_i_code, 'N'),
                            'peptide', length,
-                           _reference('C', 'N', 'peptide', res_class, _residue_class(residues, next_key)))
+                           _reference('C', 'N', 'peptide', res_name, res_class, _residue_class(residues, next_key)))
 
     for source, target, length, _ in _disulfide_bonds(residues):
         yield source, target, 'disulfide', length, None
+
+
+def _dihedral(p0, p1, p2, p3):
+    """Torsionswinkel p0–p1–p2–p3 in Grad (−180 … 180); hier zählt nur der Betrag (cis/trans)."""
+    sub = lambda a, b: [a['x'] - b['x'], a['y'] - b['y'], a['z'] - b['z']]  # noqa: E731
+    cross = lambda u, v: [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]  # noqa: E731
+    dot = lambda u, v: sum(a * b for a, b in zip(u, v))  # noqa: E731
+    b0, b1, b2 = sub(p1, p0), sub(p2, p1), sub(p3, p2)
+    n1, n2 = cross(b0, b1), cross(b1, b2)
+    m = cross(n1, [c / math.sqrt(dot(b1, b1)) for c in b1])
+    return math.degrees(math.atan2(dot(m, n2), dot(n1, n2)))
+
+
+def _angle_reference(residues, keys, ends, center):
+    """Referenz des Bindungswinkels ends[0]–center–ends[1] oder None. Atome sind
+    (Residuum-Index, Atomname); `keys` sind die Residuen-Schlüssel in Dateireihenfolge."""
+    (ia, a), (ic, c) = sorted(ends)  # Atom im früheren Residuum zuerst
+    i_center, name = center
+    if ia == ic == i_center:
+        key = keys[i_center]
+        if {a, name, c} - BACKBONE_ATOMS:
+            return SIDECHAIN_ANGLE_REFERENCES.get((key[3], name, frozenset((a, c))))
+        res_class = _residue_class(residues, key)
+        if res_class not in SIDECHAIN_BONDS:
+            return None
+        atoms = (a, name, c) if (a, name, c) in BACKBONE_ANGLE_REFERENCES else (c, name, a)
+        return _backbone_reference(BACKBONE_ANGLE_REFERENCES, atoms, _classes(own=res_class))
+    # Über die Peptidbindung: CA–C–N und O–C–N (Mitte C) oder C–N–CA (Mitte N)
+    prev_key, next_key = keys[ia], keys[ic]
+    prev_class, next_class = _residue_class(residues, prev_key), _residue_class(residues, next_key)
+    if prev_class not in SIDECHAIN_BONDS or next_class not in SIDECHAIN_BONDS:
+        return None
+    prev_atoms, next_atoms = residues[prev_key], residues[next_key]
+    cis = (all(n in prev_atoms for n in ('CA', 'C')) and all(n in next_atoms for n in ('N', 'CA'))
+           and abs(_dihedral(prev_atoms['CA'], prev_atoms['C'], next_atoms['N'], next_atoms['CA'])) < CIS_MAX_OMEGA)
+    return _backbone_reference(BACKBONE_ANGLE_REFERENCES, (a, name, c),
+                               _classes(prev=prev_class, next_=next_class, cis=cis))
+
+
+def _angle_references(residues, bonds):
+    """Referenzen der Bindungswinkel je Atom in der Mitte: {Atom-ID: {"Ende|Ende": Referenz}}
+    mit den alphabetisch sortierten Namen der Endatome. Ohne Disulfidbrücken."""
+    keys = list(residues.keys())
+    where = {
+        atom_id(*key[:3], name): (i, name)
+        for i, key in enumerate(keys) for name in residues[key]
+    }
+    neighbors = {}
+    for source, target, bond_type, _, _ in bonds:
+        if bond_type != 'disulfide':
+            neighbors.setdefault(source, []).append(target)
+            neighbors.setdefault(target, []).append(source)
+    references = {}
+    for center_id, ids in neighbors.items():
+        for i, first in enumerate(ids):
+            for second in ids[i + 1:]:
+                ref = _angle_reference(residues, keys, (where[first], where[second]), where[center_id])
+                if ref:
+                    label = '|'.join(sorted((where[first][1], where[second][1])))
+                    references.setdefault(center_id, {})[label] = ref
+    return references
 
 
 def build_graph(residues):
@@ -498,11 +602,17 @@ def build_graph(residues):
                 'charge': atom_data.get('charge', ''),
             })
 
+    bonds = list(_iter_bonds(residues))
     edges = [
-        # ref: [Mittelwert, Standardabweichung, Gruppe] nach REFERENCE_SOURCE oder None
+        # ref: [Mittelwert, Standardabweichung, Gruppe] nach REFERENCE_SOURCES oder None
         {'source': source, 'target': target, 'length': round(length, 3), 'type': bond_type, 'ref': ref}
-        for source, target, bond_type, length, ref in _iter_bonds(residues)
+        for source, target, bond_type, length, ref in bonds
     ]
+    # Referenzen der Bindungswinkel am Atom in der Mitte, siehe _angle_references
+    angle_refs = _angle_references(residues, bonds)
+    for node in nodes:
+        if node['id'] in angle_refs:
+            node['angle_refs'] = angle_refs[node['id']]
     # Herkunft der Disulfidbrücken: "ssbond" oder "distance"
     origin = {(source, target): via for source, target, _, via in _disulfide_bonds(residues)}
     for edge in edges:

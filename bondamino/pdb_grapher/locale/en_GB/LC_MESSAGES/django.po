@@ -3,8 +3,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Bondamino\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-13 17:46+0000\n"
-"PO-Revision-Date: 2026-10-13 17:46+0000\n"
+"POT-Creation-Date: 2026-10-13 19:52+0000\n"
+"PO-Revision-Date: 2026-10-13 19:52+0000\n"
 "Last-Translator: \n"
 "Language-Team: English (United Kingdom)\n"
 "Language: en_GB\n"
@@ -72,7 +72,7 @@ msgstr "Please either choose a file or enter a PDB ID, not both."
 msgid "Bitte eine Datei auswählen oder eine PDB-ID eingeben."
 msgstr "Please choose a file or enter a PDB ID."
 
-#: forms.py:111 templates/pdb_grapher/graph.html:506
+#: forms.py:111 templates/pdb_grapher/graph.html:520
 msgid "Nur für mich"
 msgstr "Only me"
 
@@ -150,7 +150,7 @@ msgid "Anmerkung"
 msgstr "Note"
 
 #: models.py:122 templates/pdb_grapher/graph.html:24
-#: templates/pdb_grapher/graph.html:503
+#: templates/pdb_grapher/graph.html:517
 msgid "Anmerkungen"
 msgstr "Notes"
 
@@ -455,7 +455,7 @@ msgstr "Reset zoom (Ctrl + mouse wheel zooms, dragging moves the view)"
 msgid "Zoom zurücksetzen"
 msgstr "Reset zoom"
 
-#: templates/pdb_grapher/graph.html:163 templates/pdb_grapher/graph.html:459
+#: templates/pdb_grapher/graph.html:163 templates/pdb_grapher/graph.html:473
 msgid "Legende"
 msgstr "Legend"
 
@@ -565,16 +565,16 @@ msgstr "Amino acids per chain"
 msgid "Bindungen"
 msgstr "Bonds"
 
-#: templates/pdb_grapher/graph.html:342
+#: templates/pdb_grapher/graph.html:342 templates/pdb_grapher/graph.html:403
 msgid "Abweichung von Referenzwerten"
 msgstr "Deviation from reference values"
 
-#: templates/pdb_grapher/graph.html:348
+#: templates/pdb_grapher/graph.html:348 templates/pdb_grapher/graph.html:409
 #, python-format
-msgid "Referenzwerte: %(source)s"
-msgstr "Reference values: %(source)s"
+msgid "Referenzwerte: %(backbone)s (Backbone), %(sidechain)s (Seitenketten)"
+msgstr "Reference values: %(backbone)s (backbone), %(sidechain)s (side chains)"
 
-#: templates/pdb_grapher/graph.html:351
+#: templates/pdb_grapher/graph.html:351 templates/pdb_grapher/graph.html:412
 msgid "Ausreißer"
 msgstr "Outliers"
 
@@ -618,51 +618,51 @@ msgstr "Angles"
 msgid "cis- und trans-Peptidbindungen"
 msgstr "cis and trans peptide bonds"
 
-#: templates/pdb_grapher/graph.html:403
+#: templates/pdb_grapher/graph.html:417
 msgid "Bindungswinkel"
 msgstr "Bond angles"
 
-#: templates/pdb_grapher/graph.html:413 templates/pdb_grapher/graph.html:461
+#: templates/pdb_grapher/graph.html:427 templates/pdb_grapher/graph.html:475
 msgid "Download"
 msgstr "Download"
 
-#: templates/pdb_grapher/graph.html:414
+#: templates/pdb_grapher/graph.html:428
 msgid "Statistiken als PDF herunterladen"
 msgstr "Download statistics as PDF"
 
-#: templates/pdb_grapher/graph.html:421
+#: templates/pdb_grapher/graph.html:435
 msgid "Statistiken als JSON herunterladen"
 msgstr "Download statistics as JSON"
 
-#: templates/pdb_grapher/graph.html:428
+#: templates/pdb_grapher/graph.html:442
 msgid "Histogramm"
 msgstr "Histogram"
 
-#: templates/pdb_grapher/graph.html:429 templates/pdb_grapher/graph.html:436
-#: templates/pdb_grapher/graph.html:443
+#: templates/pdb_grapher/graph.html:443 templates/pdb_grapher/graph.html:450
+#: templates/pdb_grapher/graph.html:457
 #, python-format
 msgid "Histogramm als %(format)s herunterladen"
 msgstr "Download histogram as %(format)s"
 
-#: templates/pdb_grapher/graph.html:462 templates/pdb_grapher/graph.html:469
-#: templates/pdb_grapher/graph.html:476
+#: templates/pdb_grapher/graph.html:476 templates/pdb_grapher/graph.html:483
+#: templates/pdb_grapher/graph.html:490
 #, python-format
 msgid "Ramachandran-Plot als %(format)s herunterladen"
 msgstr "Download Ramachandran plot as %(format)s"
 
-#: templates/pdb_grapher/graph.html:492
+#: templates/pdb_grapher/graph.html:506
 msgid "Neue Anmerkung"
 msgstr "New note"
 
-#: templates/pdb_grapher/graph.html:496
+#: templates/pdb_grapher/graph.html:510
 msgid "Anmerkung speichern"
 msgstr "Save note"
 
-#: templates/pdb_grapher/graph.html:504
+#: templates/pdb_grapher/graph.html:518
 msgid "Anmerkungen filtern"
 msgstr "Filter notes"
 
-#: templates/pdb_grapher/graph.html:505
+#: templates/pdb_grapher/graph.html:519
 msgid "Alle sichtbaren"
 msgstr "All visible"
 

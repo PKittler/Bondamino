@@ -345,7 +345,7 @@
                                 <table class="table table-sm stats-share stats-bonds mb-0" id="stat-ref-groups"></table>
                             </div>
                             <p class="small text-body-secondary mb-3">
-                                {% blocktranslate with source=structure_info.reference_source %}Referenzwerte: {{ source }}{% endblocktranslate %}
+                                {% blocktranslate with backbone=structure_info.reference_sources.backbone sidechain=structure_info.reference_sources.sidechain %}Referenzwerte: {{ backbone }} (Backbone), {{ sidechain }} (Seitenketten){% endblocktranslate %}
                             </p>
                             <div id="stat-ref-outliers-block">
                                 <h3 class="small fw-medium mb-2" id="stat-ref-outliers-title">{% translate 'Ausreißer' %}</h3>
@@ -399,6 +399,20 @@
                             <dl class="stats-facts mb-3" id="angle-omega-facts"></dl>
                             <div class="stats-narrow table-responsive mb-4" id="angle-omega-block">
                                 <table class="table table-sm stats-share stats-bonds mb-0" id="angle-omega"></table>
+                            </div>
+                            <h3 class="small fw-medium mb-2">{% translate 'Abweichung von Referenzwerten' %}</h3>
+                            <dl class="stats-facts mb-3" id="angle-ref-facts"></dl>
+                            <div class="table-responsive mb-2">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="angle-ref-groups"></table>
+                            </div>
+                            <p class="small text-body-secondary mb-3">
+                                {% blocktranslate with backbone=structure_info.reference_sources.backbone sidechain=structure_info.reference_sources.sidechain %}Referenzwerte: {{ backbone }} (Backbone), {{ sidechain }} (Seitenketten){% endblocktranslate %}
+                            </p>
+                            <div id="angle-ref-outliers-block">
+                                <h3 class="small fw-medium mb-2" id="angle-ref-outliers-title">{% translate 'Ausreißer' %}</h3>
+                                <div class="table-responsive mb-4">
+                                    <table class="table table-sm stats-share stats-bonds mb-0" id="angle-ref-outliers"></table>
+                                </div>
                             </div>
                             <h3 class="small fw-medium mb-2">{% translate 'Bindungswinkel' %}</h3>
                             <div class="table-responsive">
