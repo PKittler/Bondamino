@@ -1,3 +1,4 @@
+import gzip
 import json
 import math
 import statistics
@@ -507,14 +508,14 @@ def _iter_bonds(residues):
 
 
 def _dihedral(p0, p1, p2, p3):
-    """Torsionswinkel p0–p1–p2–p3 in Grad (−180 … 180); hier zählt nur der Betrag (cis/trans)."""
+    """Torsionswinkel p0–p1–p2–p3 in Grad (−180 … 180, IUPAC-Konvention wie im Browser)."""
     sub = lambda a, b: [a['x'] - b['x'], a['y'] - b['y'], a['z'] - b['z']]  # noqa: E731
     cross = lambda u, v: [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]  # noqa: E731
     dot = lambda u, v: sum(a * b for a, b in zip(u, v))  # noqa: E731
     b0, b1, b2 = sub(p1, p0), sub(p2, p1), sub(p3, p2)
     n1, n2 = cross(b0, b1), cross(b1, b2)
     m = cross(n1, [c / math.sqrt(dot(b1, b1)) for c in b1])
-    return math.degrees(math.atan2(dot(m, n2), dot(n1, n2)))
+    return -math.degrees(math.atan2(dot(m, n2), dot(n1, n2)))
 
 
 def _angle_reference(residues, keys, ends, center):
@@ -565,6 +566,96 @@ def _angle_references(residues, bonds):
                     label = '|'.join(sorted((where[first][1], where[second][1])))
                     references.setdefault(center_id, {})[label] = ref
     return references
+
+
+# Ramachandran-Bewertung wie MolProbity (cctbx mmtbx/validation/ramalyze.py) mit den
+# Top8000-Rastern des Richardson-Labors (CC BY 4.0, siehe reference_data/README.md).
+RAMACHANDRAN_SOURCE = 'Top8000 (Richardson Lab, Duke University), Williams et al. (2018), Protein Science 27, 293–315'
+RAMA_FAVORED = 0.02
+RAMA_ALLOWED = {'general': 0.0005, 'glycine': 0.001, 'cis-proline': 0.002, 'trans-proline': 0.001,
+                'pre-proline': 0.001, 'ile-val': 0.001}
+RAMA_CIS_MAX_OMEGA = 90  # Prolin gilt bis |ω| < 90° als cis (verdrehte Peptide zur näheren Form)
+RAMA_BINS, RAMA_BIN_WIDTH = 180, 2.0
+_rama_grids = None
+
+
+def _rama_grid(rama_type):
+    """Rasterwerte einer Kategorie (180 × 180, φ außen), beim ersten Gebrauch geladen."""
+    global _rama_grids
+    if _rama_grids is None:
+        with gzip.open(REFERENCE_DATA_DIR / 'top8000_rama.json.gz', 'rt', encoding='utf-8') as f:
+            _rama_grids = {name: [v / 1e6 for v in values] for name, values in json.load(f)['grids'].items()}
+    return _rama_grids[rama_type]
+
+
+def ramachandran_value(rama_type, phi, psi):
+    """Wert der Top8000-Verteilung bei (φ, ψ): lineare Interpolation zwischen den vier
+    nächsten Rastermitten, über ±180° hinweg fortgesetzt (wie NDimTable.valueAt)."""
+    grid = _rama_grid(rama_type)
+    home, neighbor, contrib = [], [], []
+    for angle in (phi, psi):
+        i = min(int((angle + 180) // RAMA_BIN_WIDTH), RAMA_BINS - 1)
+        center = -180 + (i + 0.5) * RAMA_BIN_WIDTH
+        home.append(i)
+        neighbor.append((i - 1 if angle < center else i + 1) % RAMA_BINS)
+        contrib.append(abs(angle - center) / RAMA_BIN_WIDTH)
+    value = 0.0
+    for use_i in (False, True):
+        for use_j in (False, True):
+            i = neighbor[0] if use_i else home[0]
+            j = neighbor[1] if use_j else home[1]
+            weight = (contrib[0] if use_i else 1 - contrib[0]) * (contrib[1] if use_j else 1 - contrib[1])
+            value += weight * grid[i * RAMA_BINS + j]
+    return value
+
+
+def ramachandran_region(rama_type, value):
+    if value >= RAMA_FAVORED:
+        return 'favored'
+    return 'allowed' if value >= RAMA_ALLOWED[rama_type] else 'outlier'
+
+
+def evaluate_ramachandran(graph):
+    """Setzt bei jedem Residuum `rama`: φ, ψ, Kategorie, Wert und Bereich (favored, allowed,
+    outlier) oder None, wenn φ oder ψ fehlt (Kettenende, Kettenlücke, fehlende Atome).
+    Rechnet mit den Knoten des Graphen, damit es auch für den Model-Durchschnitt gilt."""
+    nodes = {n['id']: n for n in graph['nodes']}
+    peptides = {(e['source'], e['target']) for e in graph['edges'] if e['type'] == 'peptide'}
+    residues = graph['residues']
+    atom = lambda res, name: nodes.get(f"{res['chain']}_{res['pos']}_{name}")  # noqa: E731
+
+    def linked(a, b):
+        c, n = atom(a, 'C'), atom(b, 'N')
+        return bool(c and n and (c['id'], n['id']) in peptides)
+
+    for i, res in enumerate(residues):
+        res['rama'] = None
+        prev = residues[i - 1] if i > 0 else None
+        next_ = residues[i + 1] if i + 1 < len(residues) else None
+        n, ca, c = atom(res, 'N'), atom(res, 'CA'), atom(res, 'C')
+        if not (n and ca and c and prev and next_ and linked(prev, res) and linked(res, next_)):
+            continue
+        phi = _dihedral(atom(prev, 'C'), n, ca, c)
+        psi = _dihedral(n, ca, c, atom(next_, 'N'))
+        name = res['parent'] or res['name']
+        if name == 'GLY':
+            rama_type = 'glycine'
+        elif name == 'PRO':
+            prev_ca = atom(prev, 'CA')
+            cis = prev_ca is not None and abs(_dihedral(prev_ca, atom(prev, 'C'), n, ca)) < RAMA_CIS_MAX_OMEGA
+            rama_type = 'cis-proline' if cis else 'trans-proline'
+        elif (next_['parent'] or next_['name']) == 'PRO':
+            rama_type = 'pre-proline'
+        elif name in ('ILE', 'VAL'):
+            rama_type = 'ile-val'
+        else:
+            rama_type = 'general'
+        value = ramachandran_value(rama_type, phi, psi)
+        res['rama'] = {
+            'phi': round(phi, 1), 'psi': round(psi, 1), 'type': rama_type,
+            'value': round(value, 6), 'region': ramachandran_region(rama_type, value),
+        }
+    return graph
 
 
 def build_graph(residues):
@@ -638,7 +729,7 @@ def build_graph(residues):
         for chain_id, res_seq, i_code, res_name in [key]
     ]
 
-    return {'nodes': nodes, 'edges': edges, 'residues': residue_list}
+    return evaluate_ramachandran({'nodes': nodes, 'edges': edges, 'residues': residue_list})
 
 
 # Über die Models gemittelte Atomfelder mit ihrer Anzahl Nachkommastellen (wie im PDB-Format)
@@ -693,7 +784,8 @@ def build_average_graph(file_path, models, altloc=None):
         for field, (total, count) in atom_sums[node['id']].items():
             if count:
                 node[field] = round(total / count, AVERAGED_ATOM_FIELDS[field])
-    return base
+    # φ/ψ aus den gemittelten Koordinaten
+    return evaluate_ramachandran(base)
 
 
 def _bond_atom(residues, node_id):

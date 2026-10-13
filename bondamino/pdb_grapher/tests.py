@@ -1,3 +1,4 @@
+import math
 import os
 import shutil
 import tempfile
@@ -14,7 +15,7 @@ from django.urls import reverse
 from .models import Language, Note, PDBFile, WorkGroup
 from .utils import (
     SIDECHAIN_BOND_REFERENCES, SIDECHAIN_BONDS, build_average_graph, build_bond_ensemble, build_graph, list_altlocs,
-    parse_header, parse_pdb,
+    parse_header, parse_pdb, ramachandran_region, ramachandran_value,
 )
 
 PDB_CONTENT = (
@@ -766,3 +767,84 @@ class AnglesTabTests(BaseTestCase):
         self.assertContains(response, 'id="angle-rama"')
         for fmt in ('png', 'jpeg', 'svg'):
             self.assertContains(response, f'data-ramachandran-format="{fmt}"')
+        self.assertContains(response, 'id="rama-type"')
+        self.assertContains(response, 'rama8000_regions.json')
+        self.assertContains(response, 'Williams et al. (2018)')
+
+
+def _place(a, b, c, length, angle, torsion):
+    """Atom d mit |cd| = length, Winkel b–c–d = angle und Torsion a–b–c–d = torsion (Grad)."""
+    sub = lambda u, v: [u[k] - v[k] for k in range(3)]  # noqa: E731
+    cross = lambda u, v: [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]  # noqa: E731
+    unit = lambda u: [x / math.sqrt(sum(y * y for y in u)) for x in u]  # noqa: E731
+    bc = unit(sub(c, b))
+    n = unit(cross(sub(b, a), bc))
+    m = cross(n, bc)
+    angle, torsion = math.radians(angle), math.radians(torsion)
+    d2 = [-length * math.cos(angle), length * math.sin(angle) * math.cos(torsion), length * math.sin(angle) * math.sin(torsion)]
+    return [c[k] + d2[0] * bc[k] + d2[1] * m[k] + d2[2] * n[k] for k in range(3)]
+
+
+def peptide_lines(residues):
+    """Rückgrat (N, CA, C) einer Kette mit idealer Geometrie; residues: [(Name, φ, ψ, ω vor dem Residuum)]."""
+    atoms = [[0.0, 0.0, 0.0], [1.458, 0.0, 0.0]]
+    atoms.append(_place([0.0, 1.0, 0.0], atoms[0], atoms[1], 1.525, 111.0, -60.0))
+    for i, (_, phi, psi, _) in enumerate(residues[:-1]):
+        omega = residues[i + 1][3]
+        n_, ca, c = atoms[-3:]
+        nxt = _place(n_, ca, c, 1.329, 116.2, psi)
+        nxt_ca = _place(ca, c, nxt, 1.458, 121.7, omega)
+        nxt_c = _place(c, nxt, nxt_ca, 1.525, 111.0, residues[i + 1][1])
+        atoms += [nxt, nxt_ca, nxt_c]
+    lines = []
+    for i, (name, _, _, _) in enumerate(residues):
+        for k, atom in enumerate(('N', 'CA', 'C')):
+            x, y, z = atoms[3 * i + k]
+            lines.append(xyz_line(3 * i + k + 1, atom, name, i + 1, x, y, z))
+    return lines
+
+
+class RamachandranTests(TestCase):
+    def write_pdb(self, lines):
+        fd, path = tempfile.mkstemp(suffix='.pdb')
+        with os.fdopen(fd, 'w') as f:
+            f.writelines(lines)
+        self.addCleanup(os.remove, path)
+        return path
+
+    def rama(self, residues):
+        graph = build_graph(parse_pdb(self.write_pdb(peptide_lines(residues))))
+        return [r['rama'] for r in graph['residues']]
+
+    def test_values_and_regions(self):
+        # α-Helix bevorzugt, linksgängige Helix bei Glycin bevorzugt, sonst Ausreißer
+        self.assertEqual(ramachandran_region('general', ramachandran_value('general', -63, -43)), 'favored')
+        self.assertEqual(ramachandran_region('general', ramachandran_value('general', 100, -100)), 'outlier')
+        self.assertEqual(ramachandran_region('glycine', ramachandran_value('glycine', 80, 10)), 'favored')
+        # Schwellen je Kategorie wie MolProbity
+        self.assertEqual(ramachandran_region('general', 0.0005), 'allowed')
+        self.assertEqual(ramachandran_region('cis-proline', 0.0015), 'outlier')
+        self.assertEqual(ramachandran_region('ile-val', 0.001), 'allowed')
+
+    def test_wrapping_interpolation_is_continuous(self):
+        self.assertAlmostEqual(ramachandran_value('general', -180, 150), ramachandran_value('general', 180, 150))
+
+    def test_phi_psi_and_types(self):
+        helix = (-63.0, -43.0)
+        rama = self.rama([('ALA', *helix, 180), ('GLY', *helix, 180), ('VAL', *helix, 180), ('LEU', *helix, 180),
+                          ('PRO', *helix, 180), ('SER', *helix, 180), ('PRO', *helix, 0), ('ALA', *helix, 180),
+                          ('ALA', *helix, 180)])
+        self.assertIsNone(rama[0])  # ohne φ
+        self.assertIsNone(rama[-1])  # ohne ψ
+        self.assertAlmostEqual(rama[1]['phi'], -63.0, places=1)
+        self.assertAlmostEqual(rama[1]['psi'], -43.0, places=1)
+        self.assertEqual([r['type'] for r in rama[1:-1]],
+                         ['glycine', 'ile-val', 'pre-proline', 'trans-proline', 'pre-proline', 'cis-proline', 'general'])
+
+    def test_outlier_and_chain_gap(self):
+        rama = self.rama([('ALA', -63, -43, 180), ('ALA', 100, -100, 180), ('ALA', -63, -43, 180)])
+        self.assertEqual(rama[1]['region'], 'outlier')
+        lines = peptide_lines([('ALA', -63, -43, 180)] * 3)
+        moved = [line[:30] + f'{float(line[30:38]) + 30:8.3f}' + line[38:] if int(line[22:26]) == 3 else line for line in lines]
+        graph = build_graph(parse_pdb(self.write_pdb(moved)))
+        self.assertIsNone(graph['residues'][1]['rama'])  # Kettenlücke nach Residuum 2
