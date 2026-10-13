@@ -432,7 +432,10 @@ function render(canvas, graphData, bondStyle, layout, animate) {
     const { svg, viewport, zoom } = canvas;
     const viewW = svg.node().clientWidth;
     const viewH = svg.node().clientHeight;
-    const maxX = d3.max(allPos, p => p.x) + NODE_R + 60;
+    // Spur für Disulfidbrücken rechts neben allen Atomen, eine Bahn je Brücke
+    const disulfideCount = graphData.edges.filter(e => e.type === 'disulfide').length;
+    const gutterX = d3.max(allPos, p => p.x) + NODE_R + SS_GUTTER_GAP;
+    const maxX = d3.max(allPos, p => p.x) + NODE_R + 60 + (disulfideCount ? SS_GUTTER_GAP + disulfideCount * SS_LANE_W : 0);
     const maxY = d3.max(allPos, p => p.y) + NODE_R + 20;
     const contentW = Math.max(maxX, 500, viewW);
     const contentH = layout === 'proportional'
@@ -520,7 +523,11 @@ function render(canvas, graphData, bondStyle, layout, animate) {
 
     // --- Bond color ---
     const visibleEdges = graphData.edges.filter(e => positions[e.source] && positions[e.target]);
-    const [minLen, maxLen] = d3.extent(visibleEdges, e => e.length);
+    // Disulfidbrücken verbinden weit entfernte Residuen und werden als Bogen gezeichnet; die
+    // Farbskala bleibt bei den übrigen Bindungen (SG–SG ist deutlich länger).
+    const straightEdges = visibleEdges.filter(e => e.type !== 'disulfide');
+    const arcEdges = visibleEdges.filter(e => e.type === 'disulfide');
+    const [minLen, maxLen] = d3.extent(straightEdges, e => e.length);
     const hue = d3.scaleLinear().domain([minLen, maxLen]).range([0, 120]).clamp(true);
     const monoColor = cssVar('--bond-mono');
 
@@ -534,7 +541,7 @@ function render(canvas, graphData, bondStyle, layout, animate) {
     // --- Edges ---
     const atomLabel = id => id.slice(id.lastIndexOf('_') + 1);
     gEdges.selectAll('line.bond')
-        .data(visibleEdges, edgeKey)
+        .data(straightEdges, edgeKey)
         .join(
             enter => enter.append('line')
                 .attr('class', 'bond')
@@ -556,8 +563,46 @@ function render(canvas, graphData, bondStyle, layout, animate) {
         .attr('x1', e => positions[e.source].x).attr('y1', e => positions[e.source].y)
         .attr('x2', e => positions[e.target].x).attr('y2', e => positions[e.target].y);
 
+    // Disulfidbrücke als Klammer: vom SG waagerecht nach rechts in die eigene Bahn der Spur,
+    // dort senkrecht zum Partner und waagerecht zurück (abgerundete Ecken). So kreuzt sie keine
+    // Seitenketten anderer Residuen. `mid` ist die Mitte des senkrechten Abschnitts.
+    const lanes = new Map(arcEdges.map((e, i) => [edgeKey(e), i]));
+    function arcGeometry(e) {
+        const src = positions[e.source], tgt = positions[e.target];
+        const x = gutterX + lanes.get(edgeKey(e)) * SS_LANE_W;
+        const dir = tgt.y >= src.y ? 1 : -1;
+        const r = Math.min(10, Math.abs(tgt.y - src.y) / 2, (x - Math.max(src.x, tgt.x)) / 2);
+        return {
+            d: `M${src.x},${src.y} H${x - r} Q${x},${src.y} ${x},${src.y + dir * r} ` +
+               `V${tgt.y - dir * r} Q${x},${tgt.y} ${x - r},${tgt.y} H${tgt.x}`,
+            mid: { x, y: (src.y + tgt.y) / 2 },
+        };
+    }
+    gEdges.selectAll('path.disulfide-bond')
+        .data(arcEdges, edgeKey)
+        .join(
+            enter => enter.append('path')
+                .attr('class', 'disulfide-bond')
+                .attr('d', e => arcGeometry(e).d)
+                .attr('stroke', e => bondColor(e))
+                .call(sel => sel.append('title'))
+                .call(fadeIn),
+            update => update,
+            fadeOut,
+        )
+        .call(sel => sel.select('title').text(e =>
+            `${atomLabel(e.source)}–${atomLabel(e.target)}: ${e.length} Å (${BOND_TYPE_LABELS.disulfide})\n${referenceText(e)}`))
+        .transition(t)
+        .attr('stroke', e => bondColor(e))
+        .attr('d', e => arcGeometry(e).d);
+    d3.select('#legend-disulfide').property('hidden', !graphData.edges.some(e => e.type === 'disulfide'));
+
     // Längenbeschriftung neben der Kantenmitte; bei zu kurzen Kanten ausgeblendet.
     function bondLabel(e) {
+        if (e.type === 'disulfide') {
+            const { mid } = arcGeometry(e);
+            return { x: mid.x + 14, y: mid.y, visible: true };
+        }
         const src = positions[e.source], tgt = positions[e.target];
         const dx = tgt.x - src.x, dy = tgt.y - src.y;
         const pxLen = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -609,6 +654,10 @@ function render(canvas, graphData, bondStyle, layout, animate) {
 }
 
 // ===== Sequenzleiste =====
+// Spur der Disulfidbrücken im Graphen: Abstand zu den Atomen und Breite je Bahn
+const SS_GUTTER_GAP = 40;
+const SS_LANE_W = 16;
+
 const SEQ_CELL_W = 16;
 const SEQ_CELL_H = 22;
 const SEQ_TICK_H = 14;
@@ -678,6 +727,7 @@ function renderSequence(canvas, graphData) {
 
     const residues = graphData.residues;
     const { breaks } = analyzePeptideBonds(graphData);
+    const bridges = disulfidePartners(graphData);
     let x = 0;
     const gaps = [];
     const cells = residues.map((res, i) => {
@@ -712,15 +762,16 @@ function renderSequence(canvas, graphData) {
             const g = enter.append('g');
             g.append('title');
             g.append('rect').attr('width', SEQ_CELL_W - 2).attr('height', SEQ_CELL_H).attr('rx', 3);
-            // Punkt oben rechts: modifizierte Aminosäure
+            // Punkt oben rechts: modifizierte Aminosäure; oben links: Cystein mit Disulfidbrücke
             g.append('circle').attr('class', 'seq-mod-mark').attr('cx', SEQ_CELL_W - 5).attr('cy', 3.5).attr('r', 2);
+            g.append('circle').attr('class', 'seq-ss-mark').attr('cx', 3).attr('cy', 3.5).attr('r', 2);
             // Markierung am unteren Rand: Konformationen sind verschiedene Aminosäuren
             g.append('rect').attr('class', 'seq-conf-mark')
                 .attr('x', 2).attr('y', SEQ_CELL_H - 3).attr('width', SEQ_CELL_W - 6).attr('height', 2.5).attr('rx', 1.25);
             g.append('text').attr('x', (SEQ_CELL_W - 2) / 2).attr('y', SEQ_CELL_H / 2);
             return g;
         })
-        .attr('class', c => `seq-cell${c.res.one_letter === '?' ? ' het' : ''}${c.res.parent ? ' modified' : ''}${residueVariants(c.res) ? ' variant' : ''}`)
+        .attr('class', c => `seq-cell${c.res.one_letter === '?' ? ' het' : ''}${c.res.parent ? ' modified' : ''}${residueVariants(c.res) ? ' variant' : ''}${bridges.has(residueKey(c.res)) ? ' disulfide' : ''}`)
         .attr('transform', c => `translate(${c.x},${SEQ_TICK_H})`)
         .on('click', (event, c) => jumpToResidue(canvas, c.res))
         .call(g => g.select('title').text(c => {
@@ -728,6 +779,8 @@ function renderSequence(canvas, graphData) {
             if (c.res.parent) lines.push(interpolate(gettext('Modifizierte Aminosäure, abgeleitet von %s'), [aminoAcidLabel(c.res.parent)]));
             const variants = residueVariants(c.res);
             if (variants) lines.push(interpolate(gettext('Aminosäure je Konformation: %s'), [variants]));
+            (bridges.get(residueKey(c.res)) || []).forEach(partner =>
+                lines.push(interpolate(gettext('Disulfidbrücke zu %s'), [partner])));
             return lines.join('\n');
         }))
         .call(g => g.select('text').text(c => c.res.one_letter));
@@ -942,6 +995,7 @@ const parentsByName = residues => new Map(residues.filter(r => r.parent).map(r =
 
 const BOND_TYPE_LABELS = {
     backbone: gettext('Backbone'), sidechain: gettext('Seitenkette'), peptide: gettext('Peptidbindung'),
+    disulfide: gettext('Disulfidbrücke'),
 };
 
 // Tabelle "Anzahl und Anteil", standardmäßig absteigend nach Anzahl sortiert.
@@ -1585,6 +1639,57 @@ async function histogramBlob(edges, format) {
     return rasterizeSvg(svgText, `image/${format}`);
 }
 
+// Disulfidbrücken mit ihren Atomen (Graph-Knoten), in Reihenfolge der Datei.
+function disulfideBonds(graphData) {
+    const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
+    return graphData.edges
+        .filter(e => e.type === 'disulfide' && nodeById.has(e.source) && nodeById.has(e.target))
+        .map(e => ({ ...e, atoms: [nodeById.get(e.source), nodeById.get(e.target)] }));
+}
+
+// Je Cystein (residueKey) die Partner seiner Disulfidbrücken, z. B. "CYS 127" oder "CYS 214 (Kette L)".
+function disulfidePartners(graphData) {
+    const partners = new Map();
+    const label = (n, other) => `${n.residue} ${n.residue_seq}${n.i_code || ''}` +
+        (n.chain !== other.chain ? ` (${interpolate(gettext('Kette %s'), [chainId(n.chain)])})` : '');
+    disulfideBonds(graphData).forEach(({ atoms: [a, b] }) => {
+        [[a, b], [b, a]].forEach(([self, other]) => {
+            const key = nodeResidueKey(self);
+            partners.set(key, [...(partners.get(key) || []), label(other, self)]);
+        });
+    });
+    return partners;
+}
+
+const disulfideOrigin = via => via === 'ssbond' ? gettext('SSBOND-Eintrag') : gettext('Abstand');
+
+function renderDisulfides(graphData) {
+    const table = d3.select('#stat-disulfides');
+    if (table.empty()) return;
+    table.selectAll('*').remove();
+    const bonds = disulfideBonds(graphData);
+    if (!bonds.length) {
+        table.append('tbody').append('tr').append('td').attr('class', 'text-body-secondary').text(gettext('Keine Disulfidbrücken'));
+        return;
+    }
+    table.append('thead').append('tr').selectAll('th')
+        .data([[gettext('Kette')], [gettext('Pos.')], [gettext('Länge (Å)'), true], [gettext('Herkunft')]])
+        .join('th').attr('scope', 'col').attr('class', c => c[1] ? 'text-end' : null).text(c => c[0]);
+    const body = table.append('tbody');
+    bonds.forEach(b => {
+        const d = describeBond(b.atoms);
+        const tr = body.append('tr');
+        tr.append('td').text(d.chain);
+        tr.append('td').text(d.pos);
+        tr.append('td').attr('class', 'text-end').text(formatLength(b.length));
+        tr.append('td').text(disulfideOrigin(b.via));
+    });
+    const total = table.append('tfoot').append('tr').attr('class', 'share-total');
+    total.append('th').attr('scope', 'row').attr('colspan', 2).text(gettext('Disulfidbrücken gesamt'));
+    total.append('td').attr('class', 'text-end').text(formatInt(bonds.length));
+    total.append('td');
+}
+
 // Peptidbindungen: existente und nicht-existente (Kettenlücken), bezogen auf die theoretisch möglichen.
 function renderPeptideBonds(graphData) {
     const { possible, formed, breaks } = analyzePeptideBonds(graphData);
@@ -1600,6 +1705,7 @@ function renderBondStats(graphData, ensemble, modelLabel) {
     if (d3.select('#stat-bond-extremes').empty() || !ensemble) return;
     renderReferenceStats(graphData);
     renderPeptideBonds(graphData);
+    renderDisulfides(graphData);
     renderBondExtremes(graphData, ensemble, modelLabel);
     renderBondHistogram(graphData.edges);
     renderBondGroups(graphData);
@@ -1715,6 +1821,8 @@ function buildStatsExport(graphData, ensemble, modelLabel, filename) {
                 })),
             },
             // Zwischen aufeinanderfolgenden Aminosäuren einer Kette; missing = Kettenlücken
+            // via: "ssbond" (SSBOND-Eintrag) oder "distance" (SG–SG-Abstand)
+            disulfides: disulfideBonds(graphData).map(b => ({ length: b.length, via: b.via, atoms: b.atoms.map(exportAtom) })),
             peptide_bonds: {
                 possible: peptide.possible,
                 formed: peptide.formed,
@@ -1960,6 +2068,17 @@ function buildStatsPdf(data) {
         ],
         foot: [[gettext('Theoretisch möglich'), num(formatInt(p.possible)), num(formatPercent(100))]],
         columnStyles: right([1, 2]),
+        tableWidth: contentW * 0.6,
+    });
+    subTitle(gettext('Disulfidbrücken'));
+    table({
+        head: [[gettext('Kette'), gettext('Pos.'), num(gettext('Länge (Å)')), gettext('Herkunft')]],
+        body: b.disulfides.length
+            ? b.disulfides.map(ss => {
+                const d = describeBond(ss.atoms.map(nodeLikeAtom));
+                return [d.chain, d.pos, num(formatLength(ss.length)), disulfideOrigin(ss.via)];
+            })
+            : [[{ content: gettext('Keine Disulfidbrücken'), colSpan: 4 }]],
         tableWidth: contentW * 0.6,
     });
     subTitle(gettext('Kürzeste und längste Bindung'));

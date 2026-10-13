@@ -8,6 +8,10 @@ BACKBONE_BONDS = [('N', 'CA'), ('CA', 'C'), ('C', 'O'), ('C', 'OXT')]
 # Struktur fehlende Residuen, und keine Bindung.
 MAX_PEPTIDE_BOND_LENGTH = 2.0
 
+# Längster SG–SG-Abstand (Å), der ohne SSBOND-Eintrag als Disulfidbrücke gilt (typisch ≈ 2,0 Å).
+# Mit SSBOND-Eintrag gilt die Brücke unabhängig vom Abstand.
+MAX_DISULFIDE_LENGTH = 2.5
+
 SIDECHAIN_BONDS = {
     'ALA': [('CA', 'CB')],
     'ARG': [('CA', 'CB'), ('CB', 'CG'), ('CG', 'CD'), ('CD', 'NE'), ('NE', 'CZ'), ('CZ', 'NH1'), ('CZ', 'NH2')],
@@ -207,6 +211,8 @@ class Residue(dict):
         self.conformations = conformations or {}
         self.parent = None
         self.sidechain_bonds = []
+        # (chain, seq, icode) der Cysteine, mit denen laut SSBOND eine Disulfidbrücke besteht
+        self.ssbond_partners = set()
 
 
 def _select_conformation(atoms, preferred):
@@ -243,6 +249,7 @@ def parse_pdb(file_path, model_id=None, altloc=None):
     # (chain, seq, icode) -> [(Atomname, altLoc, Residuenname, Atomdaten)] in Dateireihenfolge
     groups = {}
     modres = {}   # Residuenname -> Ausgangs-Aminosäure (MODRES)
+    ssbonds = []  # Paare ((chain, seq, icode), (chain, seq, icode)) aus SSBOND
     conect = []   # Atomnummern-Paare aus CONECT
     serials = {}  # Atomnummer -> ((chain, seq, icode), Residuenname, Atomname), erstes Vorkommen
     current_model = None
@@ -251,6 +258,13 @@ def parse_pdb(file_path, model_id=None, altloc=None):
             record = line[:6].strip()
             if record == 'MODRES':
                 modres.setdefault(line[12:15].strip(), line[24:27].strip())
+                continue
+            if record == 'SSBOND':
+                # Brücken zu Symmetrie-Kopien (Symmetrie-Operator ≠ 1555) liegen nicht in der Datei
+                sym1, sym2 = line[59:65].strip(), line[66:72].strip()
+                seq1, seq2 = _int_or_none(line[17:21]), _int_or_none(line[31:35])
+                if seq1 is not None and seq2 is not None and sym1 in ('', '1555') and sym2 in ('', '1555'):
+                    ssbonds.append(((line[15], seq1, line[21].strip()), (line[29], seq2, line[35].strip())))
                 continue
             if record == 'CONECT':
                 numbers = [_int_or_none(line[i:i + 5]) for i in range(6, 31, 5)]
@@ -319,6 +333,15 @@ def parse_pdb(file_path, model_id=None, altloc=None):
             res_name, residue = _select_conformation(part, altloc)
             residues[(chain_id, res_seq, i_code, res_name)] = residue
 
+    by_position = {}
+    for key, residue in residues.items():
+        by_position.setdefault(key[:3], []).append(residue)
+    for a, b in ssbonds:
+        for residue in by_position.get(a, []):
+            residue.ssbond_partners.add(b)
+        for residue in by_position.get(b, []):
+            residue.ssbond_partners.add(a)
+
     topology = _conect_topology(conect, serials)
     for (_, _, _, res_name), residue in residues.items():
         if res_name in SIDECHAIN_BONDS or not {'N', 'CA', 'C'} <= residue.keys():
@@ -380,6 +403,32 @@ def _distance(a1, a2):
     )
 
 
+def _disulfide_bonds(residues):
+    """Disulfidbrücken als (source_id, target_id, ungerundete Länge, Herkunft) mit Herkunft
+    "ssbond" (SSBOND-Eintrag) oder "distance" (SG–SG ≤ MAX_DISULFIDE_LENGTH). Beteiligt sind
+    Cysteine und davon abgeleitete modifizierte Aminosäuren mit einem SG-Atom."""
+    cysteines = [
+        (key, residue) for key, residue in residues.items()
+        if 'SG' in residue and (key[3] == 'CYS' or getattr(residue, 'parent', None) == 'CYS')
+    ]
+    by_position = {key[:3]: (i, key) for i, (key, _) in enumerate(cysteines)}
+    found = {}
+    for i, (key, residue) in enumerate(cysteines):
+        for partner in getattr(residue, 'ssbond_partners', ()):
+            if partner in by_position and partner != key[:3]:
+                pair = tuple(sorted((i, by_position[partner][0])))
+                found.setdefault(pair, 'ssbond')
+    for i, (_, a) in enumerate(cysteines):
+        for j in range(i + 1, len(cysteines)):
+            if (i, j) not in found and _distance(a['SG'], cysteines[j][1]['SG']) <= MAX_DISULFIDE_LENGTH:
+                found[(i, j)] = 'distance'
+    bonds = []
+    for (i, j), via in sorted(found.items()):
+        (key_a, res_a), (key_b, res_b) = cysteines[i], cysteines[j]
+        bonds.append((atom_id(*key_a[:3], 'SG'), atom_id(*key_b[:3], 'SG'), _distance(res_a['SG'], res_b['SG']), via))
+    return bonds
+
+
 def _residue_class(residues, key):
     """Name der Aminosäure für Referenzwerte: der eigene oder bei modifizierten die Ausgangs-Aminosäure."""
     return getattr(residues[key], 'parent', None) or key[3]
@@ -409,6 +458,9 @@ def _iter_bonds(residues):
                     yield (atom_id(chain_id, res_seq, i_code, 'C'), atom_id(next_chain, next_seq, next_i_code, 'N'),
                            'peptide', length,
                            _reference('C', 'N', 'peptide', res_class, _residue_class(residues, next_key)))
+
+    for source, target, length, _ in _disulfide_bonds(residues):
+        yield source, target, 'disulfide', length, None
 
 
 def build_graph(residues):
@@ -451,6 +503,11 @@ def build_graph(residues):
         {'source': source, 'target': target, 'length': round(length, 3), 'type': bond_type, 'ref': ref}
         for source, target, bond_type, length, ref in _iter_bonds(residues)
     ]
+    # Herkunft der Disulfidbrücken: "ssbond" oder "distance"
+    origin = {(source, target): via for source, target, _, via in _disulfide_bonds(residues)}
+    for edge in edges:
+        if edge['type'] == 'disulfide':
+            edge['via'] = origin[(edge['source'], edge['target'])]
 
     residue_list = [
         {

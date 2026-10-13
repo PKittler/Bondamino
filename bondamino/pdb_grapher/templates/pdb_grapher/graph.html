@@ -161,6 +161,7 @@
                             <div class="d-flex flex-column gap-1 small text-body-secondary">
                                 <span>{% translate '— Backbone' %}</span>
                                 <span>{% translate '- - Seitenkette' %}</span>
+                                <span id="legend-disulfide" hidden>{% translate '··· Disulfidbrücke' %}</span>
                                 <span class="d-flex flex-wrap column-gap-3 row-gap-1 mt-1" id="legend-elements"></span>
                             </div>
                             <div class="d-flex flex-column gap-1 small text-body-secondary mt-2" id="legend-reference" hidden>
@@ -368,6 +369,10 @@
                                         </tr>
                                     </tfoot>
                                 </table>
+                            </div>
+                            <h3 class="small fw-medium mb-2">{% translate 'Disulfidbrücken' %}</h3>
+                            <div class="stats-narrow table-responsive mb-4">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="stat-disulfides"></table>
                             </div>
                             <h3 class="small fw-medium mb-2">{% translate 'Kürzeste und längste Bindung' %}</h3>
                             <div class="table-responsive mb-4">

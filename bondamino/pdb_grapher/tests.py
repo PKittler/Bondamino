@@ -671,3 +671,39 @@ class StructureInfoViewTests(BaseTestCase):
         self.assertContains(response, '<dd>1,80 Å</dd>', html=True)
         self.assertContains(response, '<dd>0,234</dd>', html=True)
         self.assertContains(response, 'Engh &amp; Huber (1991)')
+
+
+def cys_lines(serial, res_seq, x, sg_x):
+    """Cystein mit N, CA, C, CB auf einer Linie bei `x` und SG bei `sg_x` (y = 2)."""
+    atoms = [('N', x), ('CA', x + 1.46), ('C', x + 2.98), ('CB', x + 1.46)]
+    lines = [pdb_line(serial + i, name, 'CYS', res_seq, ax) for i, (name, ax) in enumerate(atoms)]
+    sg = pdb_line(serial + 4, 'SG', 'CYS', res_seq, sg_x)
+    return lines + [sg[:38] + f'{2.0:8.3f}' + sg[46:]]
+
+
+class DisulfideTests(TestCase):
+    def write_pdb(self, lines):
+        fd, path = tempfile.mkstemp(suffix='.pdb')
+        with os.fdopen(fd, 'w') as f:
+            f.writelines(lines)
+        self.addCleanup(os.remove, path)
+        return path
+
+    def bridges(self, lines):
+        graph = build_graph(parse_pdb(self.write_pdb(lines)))
+        return [(e['source'], e['target'], e['length'], e['via']) for e in graph['edges'] if e['type'] == 'disulfide']
+
+    def test_bridge_by_distance(self):
+        # SG–SG 2,04 Å, Cystein 3 liegt weit entfernt
+        lines = cys_lines(1, 1, 0.0, 10.0) + cys_lines(6, 2, 20.0, 12.04) + cys_lines(11, 3, 40.0, 40.0)
+        self.assertEqual(self.bridges(lines), [('A_1_SG', 'A_2_SG', 2.04, 'distance')])
+
+    def test_bridge_from_ssbond_regardless_of_distance(self):
+        ssbond = 'SSBOND   1 CYS A    1    CYS A    3                          1555   1555  3.00  \n'
+        lines = [ssbond] + cys_lines(1, 1, 0.0, 10.0) + cys_lines(6, 3, 20.0, 13.0)
+        self.assertEqual(self.bridges(lines), [('A_1_SG', 'A_3_SG', 3.0, 'ssbond')])
+
+    def test_ssbond_to_symmetry_copy_is_ignored(self):
+        ssbond = 'SSBOND   1 CYS A    1    CYS A    3                          1555   2655  2.05  \n'
+        lines = [ssbond] + cys_lines(1, 1, 0.0, 10.0) + cys_lines(6, 3, 20.0, 13.0)
+        self.assertEqual(self.bridges(lines), [])

@@ -385,6 +385,14 @@ input[type="file"] {
 .seq-cell.modified circle.seq-mod-mark { display: inline; }
 .seq-cell.selected circle.seq-mod-mark { fill: #fff; }
 
+/* Cystein mit Disulfidbrücke: Punkt oben links in der Zelle (Farbe wie Schwefel) */
+.seq-cell circle.seq-ss-mark { display: none; fill: var(--atom-S); }
+.seq-cell.disulfide circle.seq-ss-mark { display: inline; }
+.seq-cell.selected circle.seq-ss-mark { fill: #fff; }
+
+/* Disulfidbrücke im Graphen: gepunkteter Bogen */
+.disulfide-bond { fill: none; stroke-width: 2.2; stroke-dasharray: 1 4; stroke-linecap: round; }
+
 /* Residuum, dessen Konformationen verschiedene Aminosäuren sind: Balken am unteren Zellrand
    (Selektoren spezifischer als ".seq-cell… rect" für den Zellhintergrund) */
 :root { --variant-color: #7048e8; }
