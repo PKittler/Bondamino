@@ -1,0 +1,150 @@
+{% extends 'pdb_grapher/base.html' %}
+{% load i18n versioned_static %}
+
+{% block title %}Bondamino – {% translate 'PDB-Dateien' %}{% endblock %}
+
+{% block content %}
+<div class="mx-auto" style="max-width: 1100px;">
+    <div class="card shadow-sm">
+        <div class="file-toolbar btn-toolbar justify-content-between align-items-center gap-2" role="toolbar" aria-label="{% translate 'Dateien' %}">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-primary btn-sm toolbar-icon-btn" data-bs-toggle="modal" data-bs-target="#upload-modal"
+                        title="{% translate 'Neue PDB-Datei hochladen oder von RCSB laden' %}" aria-label="{% translate 'Neue PDB-Datei' %}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M8 6.5a.5.5 0 0 1 .5.5v1.5H10a.5.5 0 0 1 0 1H8.5V11a.5.5 0 0 1-1 0V9.5H6a.5.5 0 0 1 0-1h1.5V7a.5.5 0 0 1 .5-.5"/>
+                        <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5z"/>
+                    </svg>
+                </button>
+                <span class="vr"></span>
+                <a id="edit-selected" class="btn btn-outline-secondary btn-sm toolbar-icon-btn disabled" role="button" aria-disabled="true"
+                   title="{% translate 'Verfügbarkeit der ausgewählten Datei bearbeiten' %}" aria-label="{% translate 'Verfügbarkeit der ausgewählten Datei bearbeiten' %}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325"/>
+                    </svg>
+                </a>
+                <form method="post" id="delete-selected-form" class="m-0">
+                    {% csrf_token %}
+                    <button type="submit" id="delete-selected" class="btn btn-outline-danger btn-sm toolbar-icon-btn" disabled
+                            title="{% translate 'Ausgewählte Datei löschen' %}" aria-label="{% translate 'Ausgewählte Datei löschen' %}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/>
+                            <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/>
+                        </svg>
+                    </button>
+                </form>
+            </div>
+            <form method="get" class="d-flex flex-wrap align-items-center gap-2 m-0" role="search">
+                <select name="group" class="form-select form-select-sm file-filter" aria-label="{% translate 'Filter' %}" onchange="this.form.submit()">
+                    <option value="">{% translate 'Alle verfügbaren' %}</option>
+                    <option value="personal" {% if selected_group == 'personal' %}selected{% endif %}>{% translate 'Meine Uploads' %}</option>
+                    {% for group in user_groups %}
+                        <option value="{{ group.pk }}" {% if selected_group == group.pk|stringformat:'d' %}selected{% endif %}>{{ group.name }}</option>
+                    {% endfor %}
+                </select>
+                <input type="search" name="q" id="file-search" value="{{ query }}" class="form-control form-control-sm file-search"
+                       placeholder="{% translate 'Dateiname suchen …' %}" aria-label="{% translate 'Dateiname suchen' %}" autocomplete="off">
+            </form>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0 file-table">
+                <thead>
+                    <tr>
+                        <th scope="col">{% translate 'Datei' %}</th>
+                        <th scope="col">{% translate 'Sichtbar für' %}</th>
+                        <th scope="col">{% translate 'Hochgeladen' %}</th>
+                        <th scope="col">{% translate 'Letzte Anmerkung' %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for pdb in pdb_files %}
+                    <tr class="file-row" tabindex="0" aria-selected="false" data-name="{{ pdb.name|lower }}"
+                        {% if pdb.uploaded_by_id == user.pk %}data-edit-url="{% url 'pdb_grapher:edit' pdb.pk %}" data-delete-url="{% url 'pdb_grapher:delete' pdb.pk %}" data-file-name="{{ pdb.name }}"{% endif %}>
+                        <td><a href="{% url 'pdb_grapher:detail' pdb.pk %}" class="font-monospace">{{ pdb.name }}</a></td>
+                        <td>
+                            <div class="d-flex flex-wrap gap-1">
+                            {% if pdb.personal and pdb.uploaded_by_id %}
+                                <span class="badge text-bg-secondary">{% translate 'persönlich' %}</span>
+                            {% endif %}
+                            {% for group in pdb.groups.all %}
+                                <span class="badge text-bg-primary d-inline-flex align-items-center gap-1">
+                                    {{ group.name }}
+                                    {% if group.pk in led_group_ids %}
+                                        <form method="post" action="{% url 'pdb_grapher:remove_from_group' pdb.pk group.pk %}" class="m-0 d-inline"
+                                              data-confirm="{% blocktranslate with name=pdb.name group=group.name %}„{{ name }}“ aus der Gruppe „{{ group }}“ entfernen?{% endblocktranslate %}">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn-close btn-close-white badge-remove" title="{% translate 'Aus Gruppe entfernen' %}" aria-label="{% blocktranslate with group=group.name %}Aus Gruppe {{ group }} entfernen{% endblocktranslate %}"></button>
+                                        </form>
+                                    {% endif %}
+                                </span>
+                            {% endfor %}
+                            </div>
+                        </td>
+                        <td class="small text-body-secondary text-nowrap">{{ pdb.uploaded_at|date:'SHORT_DATETIME_FORMAT' }}</td>
+                        <td class="small text-body-secondary text-nowrap">{{ pdb.latest_note_at|date:'SHORT_DATETIME_FORMAT'|default:'–' }}</td>
+                    </tr>
+                {% endfor %}
+                    <tr id="file-empty" {% if pdb_files %}hidden{% endif %}>
+                        <td colspan="4" class="text-body-secondary py-3">
+                            {% if query or selected_group %}{% translate 'Keine PDB-Dateien für diese Auswahl.' %}{% else %}{% translate 'Keine PDB-Dateien vorhanden.' %}{% endif %}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="upload-modal" tabindex="-1" aria-labelledby="upload-modal-title" aria-hidden="true"
+     data-file-input="{{ form.pdb_file.id_for_label }}" data-pdb-id-input="{{ form.pdb_id.id_for_label }}"
+     {% if show_upload %}data-show{% endif %}>
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <form method="post" enctype="multipart/form-data" class="modal-content">
+            {% csrf_token %}
+            <div class="modal-header">
+                <h2 class="modal-title h5" id="upload-modal-title">{% translate 'Neue PDB-Datei' %}</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% translate 'Schließen' %}"></button>
+            </div>
+            <div class="modal-body">
+                <div class="file-drop-area border border-2 border-dashed rounded-3 p-5 text-center d-flex flex-column align-items-center gap-3" id="file-drop-area">
+                    <div class="fs-1 text-primary">⬡</div>
+                    <p class="text-body-secondary mb-0">{% translate 'Datei hierher ziehen oder' %}</p>
+                    <label class="btn btn-outline-primary" for="{{ form.pdb_file.id_for_label }}">
+                        {% translate 'Datei auswählen' %}
+                    </label>
+                    {{ form.pdb_file }}
+                    <p class="text-body-secondary small font-monospace mb-0" id="file-name-display">{{ form.pdb_file.help_text }}</p>
+                    {% for error in form.pdb_file.errors %}
+                        <p class="text-danger small mb-0">{{ error }}</p>
+                    {% endfor %}
+                </div>
+                <div class="d-flex align-items-center gap-3 my-3 text-body-secondary small" aria-hidden="true">
+                    <hr class="flex-grow-1 m-0"><span>{% translate 'oder' %}</span><hr class="flex-grow-1 m-0">
+                </div>
+                <div>
+                    <label class="form-label" for="{{ form.pdb_id.id_for_label }}">{% translate 'PDB-ID von RCSB laden' %}</label>
+                    <div class="pdb-id-input">{{ form.pdb_id }}</div>
+                    {% for error in form.pdb_id.errors %}
+                        <p class="text-danger small mt-1 mb-0">{{ error }}</p>
+                    {% endfor %}
+                </div>
+                <hr class="my-3">
+                <div>
+                    {% include 'pdb_grapher/_availability_fields.html' %}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{% translate 'Abbrechen' %}</button>
+                <button type="submit" class="btn btn-primary d-inline-flex align-items-center gap-2" id="upload-submit">
+                    <span class="spinner-border spinner-border-sm" aria-hidden="true" hidden></span>
+                    <span>{% translate 'Protein analysieren' %}</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{% static_v 'pdb_grapher/js/index.js' %}"></script>
+{% endblock %}

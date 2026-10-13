@@ -1,0 +1,22 @@
+{% load i18n %}
+<fieldset>
+    <legend class="h6 mb-2">{% translate 'Verfügbar für' %}</legend>
+    <div class="form-check">
+        {{ form.personal }}
+        <label class="form-check-label" for="{{ form.personal.id_for_label }}">{{ form.personal.label }}</label>
+    </div>
+    {% for checkbox in form.groups %}
+        <div class="form-check">
+            {{ checkbox.tag }}
+            <label class="form-check-label" for="{{ checkbox.id_for_label }}">{% blocktranslate with group=checkbox.choice_label %}Arbeitsgruppe {{ group }}{% endblocktranslate %}</label>
+        </div>
+    {% empty %}
+        <p class="text-body-secondary small mb-0">{% translate 'Du bist keiner Arbeitsgruppe zugeordnet.' %}</p>
+    {% endfor %}
+    {% for error in form.non_field_errors %}
+        <p class="text-danger small mt-1 mb-0">{{ error }}</p>
+    {% endfor %}
+    {% for error in form.groups.errors %}
+        <p class="text-danger small mt-1 mb-0">{{ error }}</p>
+    {% endfor %}
+</fieldset>

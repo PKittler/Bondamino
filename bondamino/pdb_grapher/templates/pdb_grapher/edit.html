@@ -1,0 +1,23 @@
+{% extends 'pdb_grapher/base.html' %}
+{% load i18n %}
+
+{% block title %}Bondamino – {% blocktranslate with name=pdb.name %}{{ name }} bearbeiten{% endblocktranslate %}{% endblock %}
+
+{% block content %}
+<div class="mx-auto" style="max-width: 700px;">
+    <div class="card shadow-sm">
+        <div class="card-body p-4">
+            <h1 class="card-title h5 mb-1">{% translate 'Verfügbarkeit bearbeiten' %}</h1>
+            <p class="font-monospace text-body-secondary mb-4">{{ pdb.name }}</p>
+            <form method="post">
+                {% csrf_token %}
+                {% include 'pdb_grapher/_availability_fields.html' %}
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <a href="{% url 'pdb_grapher:index' %}" class="btn btn-outline-secondary">{% translate 'Abbrechen' %}</a>
+                    <button type="submit" class="btn btn-primary">{% translate 'Speichern' %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,85 @@
+{% load i18n versioned_static %}<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE }}" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Bondamino{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static_v 'pdb_grapher/vendor/bootstrap/css/bootstrap.min.css' %}">
+    <link rel="stylesheet" href="{% static_v 'pdb_grapher/css/style.css' %}">
+    <!-- Übersetzungen für JavaScript (gettext, interpolate); vor allen Seitenskripten laden -->
+    <script src="{% url 'javascript-catalog' %}"></script>
+</head>
+<body>
+<nav class="navbar sticky-top bg-body-tertiary border-bottom shadow-sm">
+    <div class="container-xl">
+        <a href="{% url 'pdb_grapher:index' %}" class="navbar-brand d-flex align-items-center gap-2">
+            <span class="fs-3 text-primary lh-1">⬡</span>
+            Bondamino
+        </a>
+        <div class="d-flex align-items-center gap-2">
+            <button id="theme-toggle" class="btn btn-outline-secondary rounded-circle icon-btn" type="button" title="{% translate 'Dark Mode umschalten' %}" aria-label="{% translate 'Dark Mode umschalten' %}">
+                <span class="theme-icon">☾</span>
+            </button>
+            {% if available_languages|length > 1 %}
+                <form method="post" action="{% url 'pdb_grapher:set_language' %}" class="m-0">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <select name="language" class="form-select form-select-sm language-select" aria-label="{% translate 'Sprache' %}" onchange="this.form.submit()">
+                        {% for language in available_languages %}
+                            <option value="{{ language.code }}" lang="{{ language.code }}" {% if language.code == LANGUAGE_CODE %}selected{% endif %}>{{ language.name }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            {% endif %}
+            {% if user.is_authenticated %}
+                <form method="post" action="{% url 'logout' %}" class="m-0">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">{% translate 'Abmelden' %}</button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+</nav>
+
+<main class="main-content container-xl py-4">
+    {% for message in messages %}
+        <div class="alert alert-{% if message.level_tag == 'error' %}danger{% else %}{{ message.level_tag }}{% endif %} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% translate 'Schließen' %}"></button>
+        </div>
+    {% endfor %}
+    {% block content %}{% endblock %}
+</main>
+
+<script>
+    // Theme persistence
+    (function () {
+        const saved = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-bs-theme', saved);
+    })();
+</script>
+<script src="{% static_v 'pdb_grapher/vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+<script>
+    document.getElementById('theme-toggle').addEventListener('click', function () {
+        const html = document.documentElement;
+        const current = html.getAttribute('data-bs-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        html.setAttribute('data-bs-theme', next);
+        localStorage.setItem('theme', next);
+    });
+
+    // Formulare mit data-confirm erst nach Rückfrage absenden. Läuft in der Capture-Phase
+    // vor seitenspezifischen Handlern, damit ein Abbruch auch AJAX-Formulare stoppt.
+    document.addEventListener('submit', function (event) {
+        const message = event.target.dataset.confirm;
+        if (message && !confirm(message)) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }
+    }, true);
+</script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

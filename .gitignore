@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Lokale Daten: Datenbank und hochgeladene PDB-Dateien
+bondamino/db.sqlite3
+bondamino/media/
+
+# IDE und persönliche Einstellungen
+.idea/
+.claude/settings.local.json
