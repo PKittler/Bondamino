@@ -28,3 +28,24 @@ Neu erzeugen: die `.cif`-Dateien der in `build_ccp4_sidechains.py` aufgeführten
 Residuen aus dem Repository (Ordner `a/` bis `z/`) in einen Ordner laden, dann
 
     python -I build_ccp4_sidechains.py <ordner> ccp4_sidechains.json
+
+## Ramachandran-Bereiche: Top8000
+
+Williams, C. J. et al. (2018). MolProbity: More and better reference data for improved
+all-atom structure validation. *Protein Science* 27, 293–315.
+
+Raster der Top8000-Verteilungen (Richardson-Labor, Duke University) für die sechs
+Kategorien von MolProbity: Allgemein, Glycin, cis-Prolin, trans-Prolin, vor Prolin sowie
+Isoleucin und Valin. Bewertet wird wie in MolProbity (`mmtbx/validation/ramalyze.py`):
+lineare Interpolation im Raster, bevorzugt ab 2 %, erlaubt ab 0,05 % (Allgemein),
+0,2 % (cis-Prolin) bzw. 0,1 % (übrige).
+
+- https://github.com/rlabduke/reference_data/tree/5ee6875fc29eccc3c9dc7cbe705ff9fd1b505d7d/Top8000/Top8000_ramachandran_pct_contour_grids
+- Lizenz: CC BY 4.0, siehe `LICENSE-top8000.txt`
+
+Erzeugt mit `build_top8000_rama.py`:
+
+- `top8000_rama.json.gz`: Rasterwerte für die Bewertung im Server
+- `static/pdb_grapher/data/rama8000_regions.json`: Bereiche je Rasterfeld für den Plot
+
+    python -I build_top8000_rama.py <ordner mit den rama8000-*.data> top8000_rama.json.gz ../static/pdb_grapher/data/rama8000_regions.json

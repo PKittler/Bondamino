@@ -3,8 +3,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Bondamino\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-13 19:52+0000\n"
-"PO-Revision-Date: 2026-10-13 19:52+0000\n"
+"POT-Creation-Date: 2026-10-13 20:16+0000\n"
+"PO-Revision-Date: 2026-10-13 20:16+0000\n"
 "Last-Translator: \n"
 "Language-Team: English (United Kingdom)\n"
 "Language: en_GB\n"
@@ -72,7 +72,7 @@ msgstr "Please either choose a file or enter a PDB ID, not both."
 msgid "Bitte eine Datei auswählen oder eine PDB-ID eingeben."
 msgstr "Please choose a file or enter a PDB ID."
 
-#: forms.py:111 templates/pdb_grapher/graph.html:520
+#: forms.py:111 templates/pdb_grapher/graph.html:539
 msgid "Nur für mich"
 msgstr "Only me"
 
@@ -150,7 +150,7 @@ msgid "Anmerkung"
 msgstr "Note"
 
 #: models.py:122 templates/pdb_grapher/graph.html:24
-#: templates/pdb_grapher/graph.html:517
+#: templates/pdb_grapher/graph.html:536
 msgid "Anmerkungen"
 msgstr "Notes"
 
@@ -227,45 +227,45 @@ msgstr "Solution NMR"
 msgid "Festkörper-NMR"
 msgstr "Solid-state NMR"
 
-#: views.py:240
+#: views.py:241
 msgid "Nur der Verfasser darf die Anmerkung bearbeiten."
 msgstr "Only the author may edit the note."
 
-#: views.py:258
+#: views.py:259
 msgid "Nur der Verfasser darf die Anmerkung löschen."
 msgstr "Only the author may delete the note."
 
-#: views.py:272
+#: views.py:273
 msgid "Nur der Gruppenleiter darf Anmerkungen aus der Gruppe entfernen."
 msgstr "Only the group leader may remove notes from the group."
 
-#: views.py:285
+#: views.py:286
 msgid "Nur der Uploader darf die Verfügbarkeit bearbeiten."
 msgstr "Only the uploader may edit the availability."
 
-#: views.py:300
+#: views.py:301
 msgid "Nur der Uploader darf die Datei löschen."
 msgstr "Only the uploader may delete the file."
 
-#: views.py:302
+#: views.py:303
 #, python-format
 msgid "„%(name)s“ wurde gelöscht."
 msgstr "“%(name)s” has been deleted."
 
-#: views.py:313
+#: views.py:314
 msgid "Nur der Gruppenleiter darf Dateien aus der Gruppe entfernen."
 msgstr "Only the group leader may remove files from the group."
 
-#: views.py:159
+#: views.py:160
 msgid "Ungültige Konformation."
 msgstr "Invalid conformation."
 
-#: views.py:289
+#: views.py:290
 #, python-format
 msgid "Verfügbarkeit von „%(name)s“ gespeichert."
 msgstr "Availability of “%(name)s” saved."
 
-#: views.py:319
+#: views.py:320
 #, python-format
 msgid ""
 "„%(name)s“ wurde aus „%(group)s“ entfernt und gelöscht, da sie nirgends mehr "
@@ -274,22 +274,22 @@ msgstr ""
 "“%(name)s” has been removed from “%(group)s” and deleted, as it was no longer"
 " available anywhere."
 
-#: views.py:322
+#: views.py:323
 #, python-format
 msgid "„%(name)s“ wurde aus „%(group)s“ entfernt."
 msgstr "“%(name)s” has been removed from “%(group)s”."
 
-#: views.py:126
+#: views.py:127
 #, python-format
 msgid "Fehler beim Verarbeiten der Datei „%(name)s“: %(error)s"
 msgstr "Error processing the file “%(name)s”: %(error)s"
 
-#: views.py:183 views.py:63
+#: views.py:184 views.py:63
 #, python-format
 msgid "Fehler beim Verarbeiten der Datei: %(error)s"
 msgstr "Error processing the file: %(error)s"
 
-#: views.py:170
+#: views.py:171
 msgid "Ungültiges Model."
 msgstr "Invalid model."
 
@@ -455,7 +455,7 @@ msgstr "Reset zoom (Ctrl + mouse wheel zooms, dragging moves the view)"
 msgid "Zoom zurücksetzen"
 msgstr "Reset zoom"
 
-#: templates/pdb_grapher/graph.html:163 templates/pdb_grapher/graph.html:473
+#: templates/pdb_grapher/graph.html:163 templates/pdb_grapher/graph.html:492
 msgid "Legende"
 msgstr "Legend"
 
@@ -565,16 +565,17 @@ msgstr "Amino acids per chain"
 msgid "Bindungen"
 msgstr "Bonds"
 
-#: templates/pdb_grapher/graph.html:342 templates/pdb_grapher/graph.html:403
+#: templates/pdb_grapher/graph.html:342 templates/pdb_grapher/graph.html:417
 msgid "Abweichung von Referenzwerten"
 msgstr "Deviation from reference values"
 
-#: templates/pdb_grapher/graph.html:348 templates/pdb_grapher/graph.html:409
+#: templates/pdb_grapher/graph.html:348 templates/pdb_grapher/graph.html:423
 #, python-format
 msgid "Referenzwerte: %(backbone)s (Backbone), %(sidechain)s (Seitenketten)"
 msgstr "Reference values: %(backbone)s (backbone), %(sidechain)s (side chains)"
 
-#: templates/pdb_grapher/graph.html:351 templates/pdb_grapher/graph.html:412
+#: templates/pdb_grapher/graph.html:351 templates/pdb_grapher/graph.html:407
+#: templates/pdb_grapher/graph.html:426
 msgid "Ausreißer"
 msgstr "Outliers"
 
@@ -615,54 +616,71 @@ msgid "Winkel"
 msgstr "Angles"
 
 #: templates/pdb_grapher/graph.html:398
+msgid "Ramachandran-Bewertung"
+msgstr "Ramachandran evaluation"
+
+#: templates/pdb_grapher/graph.html:404
+#, python-format
+msgid "Ramachandran-Bereiche: %(source)s"
+msgstr "Ramachandran regions: %(source)s"
+
+#: templates/pdb_grapher/graph.html:412
 msgid "cis- und trans-Peptidbindungen"
 msgstr "cis and trans peptide bonds"
 
-#: templates/pdb_grapher/graph.html:417
+#: templates/pdb_grapher/graph.html:431
 msgid "Bindungswinkel"
 msgstr "Bond angles"
 
-#: templates/pdb_grapher/graph.html:427 templates/pdb_grapher/graph.html:475
+#: templates/pdb_grapher/graph.html:441 templates/pdb_grapher/graph.html:494
 msgid "Download"
 msgstr "Download"
 
-#: templates/pdb_grapher/graph.html:428
+#: templates/pdb_grapher/graph.html:442
 msgid "Statistiken als PDF herunterladen"
 msgstr "Download statistics as PDF"
 
-#: templates/pdb_grapher/graph.html:435
+#: templates/pdb_grapher/graph.html:449
 msgid "Statistiken als JSON herunterladen"
 msgstr "Download statistics as JSON"
 
-#: templates/pdb_grapher/graph.html:442
+#: templates/pdb_grapher/graph.html:456
 msgid "Histogramm"
 msgstr "Histogram"
 
-#: templates/pdb_grapher/graph.html:443 templates/pdb_grapher/graph.html:450
-#: templates/pdb_grapher/graph.html:457
+#: templates/pdb_grapher/graph.html:457 templates/pdb_grapher/graph.html:464
+#: templates/pdb_grapher/graph.html:471
 #, python-format
 msgid "Histogramm als %(format)s herunterladen"
 msgstr "Download histogram as %(format)s"
 
-#: templates/pdb_grapher/graph.html:476 templates/pdb_grapher/graph.html:483
+#: templates/pdb_grapher/graph.html:488
+msgid "Kategorie"
+msgstr "Category"
+
 #: templates/pdb_grapher/graph.html:490
+msgid "Alle"
+msgstr "All"
+
+#: templates/pdb_grapher/graph.html:495 templates/pdb_grapher/graph.html:502
+#: templates/pdb_grapher/graph.html:509
 #, python-format
 msgid "Ramachandran-Plot als %(format)s herunterladen"
 msgstr "Download Ramachandran plot as %(format)s"
 
-#: templates/pdb_grapher/graph.html:506
+#: templates/pdb_grapher/graph.html:525
 msgid "Neue Anmerkung"
 msgstr "New note"
 
-#: templates/pdb_grapher/graph.html:510
+#: templates/pdb_grapher/graph.html:529
 msgid "Anmerkung speichern"
 msgstr "Save note"
 
-#: templates/pdb_grapher/graph.html:518
+#: templates/pdb_grapher/graph.html:537
 msgid "Anmerkungen filtern"
 msgstr "Filter notes"
 
-#: templates/pdb_grapher/graph.html:519
+#: templates/pdb_grapher/graph.html:538
 msgid "Alle sichtbaren"
 msgstr "All visible"
 

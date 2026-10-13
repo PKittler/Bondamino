@@ -395,6 +395,20 @@
 
                         <section aria-labelledby="stats-angles-title">
                             <h2 id="stats-angles-title" class="stats-title text-uppercase text-body-secondary small fw-medium mb-3">{% translate 'Winkel' %}</h2>
+                            <h3 class="small fw-medium mb-2">{% translate 'Ramachandran-Bewertung' %}</h3>
+                            <dl class="stats-facts mb-3" id="rama-facts"></dl>
+                            <div class="stats-narrow table-responsive mb-2">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="rama-types"></table>
+                            </div>
+                            <p class="small text-body-secondary mb-3">
+                                {% blocktranslate with source=structure_info.ramachandran_source %}Ramachandran-Bereiche: {{ source }}{% endblocktranslate %}
+                            </p>
+                            <div id="rama-outliers-block">
+                                <h3 class="small fw-medium mb-2">{% translate 'Ausreißer' %}</h3>
+                                <div class="stats-narrow table-responsive mb-4">
+                                    <table class="table table-sm stats-share stats-bonds mb-0" id="rama-outliers"></table>
+                                </div>
+                            </div>
                             <h3 class="small fw-medium mb-2">{% translate 'cis- und trans-Peptidbindungen' %}</h3>
                             <dl class="stats-facts mb-3" id="angle-omega-facts"></dl>
                             <div class="stats-narrow table-responsive mb-4" id="angle-omega-block">
@@ -469,7 +483,12 @@
                     <div class="card-body stats-body rama-body">
                         <div class="rama-plot" id="angle-rama"></div>
                     </div>
-                    <aside class="pane-aside stats-aside d-flex flex-column gap-2" id="angles-export" aria-labelledby="angles-legend-title" data-filename="{{ filename }}">
+                    <aside class="pane-aside stats-aside d-flex flex-column gap-2" id="angles-export" aria-labelledby="angles-legend-title" data-filename="{{ filename }}"
+                           data-rama-regions="{% static_v 'pdb_grapher/data/rama8000_regions.json' %}">
+                        <h3 class="sidebar-title text-uppercase text-body-secondary small fw-medium mb-0"><label for="rama-type">{% translate 'Kategorie' %}</label></h3>
+                        <select id="rama-type" class="form-select form-select-sm mb-3">
+                            <option value="">{% translate 'Alle' %}</option>
+                        </select>
                         <h3 id="angles-legend-title" class="sidebar-title text-uppercase text-body-secondary small fw-medium mb-0">{% translate 'Legende' %}</h3>
                         <div class="d-flex flex-column gap-1 small text-body-secondary" id="angle-rama-legend"></div>
                         <h3 class="sidebar-title text-uppercase text-body-secondary small fw-medium mt-3 mb-0">{% translate 'Download' %}</h3>

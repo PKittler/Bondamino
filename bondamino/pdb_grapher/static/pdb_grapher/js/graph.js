@@ -1443,6 +1443,19 @@ function ramaClass(res) {
 const RAMA_CLASSES = ['general', 'gly', 'pro'];
 const ramaClassLabel = cls => ({ general: gettext('Übrige Aminosäuren'), gly: gettext('Glycin'), pro: gettext('Prolin') })[cls];
 
+// Bewertung vom Server (Top8000 wie MolProbity): Kategorie und Bereich je Aminosäure
+const RAMA_TYPES = ['general', 'glycine', 'cis-proline', 'trans-proline', 'pre-proline', 'ile-val'];
+const ramaTypeLabel = type => ({
+    general: gettext('Allgemein'), glycine: gettext('Glycin'), 'cis-proline': gettext('cis-Prolin'),
+    'trans-proline': gettext('trans-Prolin'), 'pre-proline': gettext('Vor Prolin'), 'ile-val': gettext('Ile und Val'),
+})[type];
+const RAMA_REGIONS = ['favored', 'allowed', 'outlier'];
+const ramaRegionLabel = region => ({
+    favored: gettext('Bevorzugt'), allowed: gettext('Erlaubt'), outlier: gettext('Ausreißer'),
+})[region];
+// Angezeigte Kategorie im Plot ('' = alle) und die Bereiche je Kategorie (bei Bedarf geladen)
+const ramaView = { type: '', regions: null };
+
 // φ/ψ je Aminosäure, ω je Peptidbindung und alle Bindungswinkel. Torsionen über eine
 // Peptidbindung gibt es nur, wo der Server eine Bindung erkannt hat (keine Kettenlücke).
 function analyzeAngles(graphData) {
@@ -1455,15 +1468,15 @@ function analyzeAngles(graphData) {
     };
 
     const residues = graphData.residues;
-    const ramachandran = [];
+    // φ/ψ, Kategorie und Bereich berechnet der Server (evaluate_ramachandran)
+    const ramachandran = residues.filter(res => res.rama).map(res => ({
+        res, phi: res.rama.phi, psi: res.rama.psi, cls: ramaClass(res), type: res.rama.type, region: res.rama.region,
+    }));
     const omegas = [];
     residues.forEach((res, i) => {
-        const prev = residues[i - 1], next = residues[i + 1];
-        const n = atom(res, 'N'), ca = atom(res, 'CA'), c = atom(res, 'C');
-        if (!n || !ca || !c) return;
-        const phi = prev && linked(prev, res) ? dihedral(atom(prev, 'C'), n, ca, c) : null;
-        const psi = next && linked(res, next) ? dihedral(n, ca, c, atom(next, 'N')) : null;
-        if (phi !== null && psi !== null) ramachandran.push({ res, phi, psi, cls: ramaClass(res) });
+        const next = residues[i + 1];
+        const ca = atom(res, 'CA'), c = atom(res, 'C');
+        if (!ca || !c) return;
         if (next && linked(res, next) && atom(next, 'CA')) {
             const omega = dihedral(ca, c, atom(next, 'N'), atom(next, 'CA'));
             const abs = Math.abs(omega);
@@ -1523,12 +1536,30 @@ const RAMA_SIZE = 480;
 const RAMA_MAJOR_STEP = 60; // Hauptgitter und Achsenbeschriftung (°)
 const RAMA_MINOR_STEP = 20; // Hilfsgitter (°)
 const RAMA_MARGIN = { top: 12, right: 14, bottom: 46, left: 56 };
-function drawRamachandran(svg, points, size) {
+function drawRamachandran(svg, points, size, view = ramaView) {
     const m = RAMA_MARGIN;
     const x = d3.scaleLinear().domain([-180, 180]).range([m.left, size - m.right]);
     const y = d3.scaleLinear().domain([-180, 180]).range([size - m.bottom, m.top]);
     const ticks = d3.range(-180, 181, RAMA_MAJOR_STEP);
     const degrees = d => `${d}°`;
+
+    // Erlaubter und bevorzugter Bereich der gewählten Kategorie (Raster 180 × 180 zu 2°)
+    const regions = view.type && view.regions?.regions[view.type];
+    if (regions) {
+        const n = view.regions.bins;
+        const values = new Array(n * n);
+        for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) values[j * n + i] = +regions[i * n + j];
+        const step = 360 / n;
+        const path = d3.geoPath(d3.geoTransform({
+            point(px, py) { this.stream.point(x(-180 + px * step), y(-180 + py * step)); },
+        }));
+        svg.append('g').selectAll('path')
+            .data(d3.contours().size([n, n]).thresholds([1, 2])(values))
+            .join('path')
+            .attr('class', c => c.value === 2 ? 'rama-region-favored' : 'rama-region-allowed')
+            .attr('d', path);
+        points = points.filter(p => p.type === view.type);
+    }
 
     // Hilfsgitter (feiner als das Hauptgitter), unter allem anderen
     const minor = d3.range(-180, 181, RAMA_MINOR_STEP).filter(v => v % RAMA_MAJOR_STEP !== 0);
@@ -1553,43 +1584,137 @@ function drawRamachandran(svg, points, size) {
     svg.append('text').attr('class', 'hist-label').attr('text-anchor', 'middle')
         .attr('transform', `translate(16,${(y(-180) + y(180)) / 2}) rotate(-90)`).text('ψ');
 
-    // Glycin und Prolin über den übrigen zeichnen, damit sie sichtbar bleiben
-    const order = cls => RAMA_CLASSES.indexOf(cls);
+    // Glycin und Prolin über den übrigen zeichnen, Ausreißer zuoberst, damit sie sichtbar bleiben
+    const order = p => RAMA_CLASSES.indexOf(p.cls) + (p.region === 'outlier' ? RAMA_CLASSES.length : 0);
     return svg.append('g').selectAll('circle')
-        .data([...points].sort((a, b) => order(a.cls) - order(b.cls)))
+        .data([...points].sort((a, b) => order(a) - order(b)))
         .join('circle')
-        .attr('class', p => `rama-point rama-${p.cls}`)
-        .attr('cx', p => x(p.phi)).attr('cy', p => y(p.psi)).attr('r', 3.2);
+        .attr('class', p => `rama-point rama-${p.cls}${p.region === 'outlier' ? ' rama-outlier' : ''}`)
+        .attr('cx', p => x(p.phi)).attr('cy', p => y(p.psi)).attr('r', p => p.region === 'outlier' ? 4.2 : 3.2);
 }
 
-function renderAngles(canvas, graphData) {
+// Bereiche je Kategorie einmalig laden (statische Datei, URL im Template)
+async function loadRamaRegions() {
+    if (ramaView.regions) return ramaView.regions;
+    const src = document.getElementById('angles-export')?.dataset.ramaRegions;
+    ramaView.regions = await (await fetch(src)).json();
+    return ramaView.regions;
+}
+
+// Plot und Legende im Tab "Ramachandran"
+function renderRamachandranPlot(canvas, angles) {
     const container = d3.select('#angle-rama');
     if (container.empty()) return;
-    const angles = analyzeAngles(graphData);
-
-    // Ramachandran-Plot (skaliert über viewBox mit der Breite)
+    canvas.ramaAngles = angles;
+    const shown = ramaView.type && ramaView.regions
+        ? angles.ramachandran.filter(p => p.type === ramaView.type) : angles.ramachandran;
     container.selectAll('*').remove();
     const svg = container.append('svg')
         .attr('viewBox', `0 0 ${RAMA_SIZE} ${RAMA_SIZE}`)
         .attr('role', 'img')
-        .attr('aria-label', interpolate(gettext('Ramachandran-Plot mit %s Aminosäuren'), [formatInt(angles.ramachandran.length)]));
+        .attr('aria-label', interpolate(gettext('Ramachandran-Plot mit %s Aminosäuren'), [formatInt(shown.length)]));
     canvas.ramaPoints = drawRamachandran(svg, angles.ramachandran, RAMA_SIZE)
         .on('click', (event, p) => jumpToResidue(canvas, p.res));
     canvas.ramaPoints.append('title').text(p =>
-        `${p.res.name} ${p.res.pos} (${chainLabel(p.res.chain)})\nφ = ${formatAngle(p.phi)}, ψ = ${formatAngle(p.psi)}`);
+        `${p.res.name} ${p.res.pos} (${chainLabel(p.res.chain)})\nφ = ${formatAngle(p.phi)}, ψ = ${formatAngle(p.psi)}`
+        + `\n${ramaTypeLabel(p.type)} · ${ramaRegionLabel(p.region)}`);
 
-    const counts = d3.rollup(angles.ramachandran, v => v.length, p => p.cls);
+    // Legende: Klassen (Farbe der Punkte), Ausreißer und bei gewählter Kategorie deren Bereiche
+    const counts = d3.rollup(shown, v => v.length, p => p.cls);
+    const entries = [
+        ...RAMA_CLASSES.filter(cls => !ramaView.type || counts.get(cls)).map(cls => ({
+            swatch: 'legend-dot', style: `background: var(--rama-${cls})`,
+            label: `${ramaClassLabel(cls)} (${formatInt(counts.get(cls) || 0)})`,
+        })),
+        { swatch: 'legend-dot rama-legend-outlier',
+          label: `${ramaRegionLabel('outlier')} (${formatInt(shown.filter(p => p.region === 'outlier').length)})` },
+        ...(ramaView.type && ramaView.regions ? ['favored', 'allowed'].map(region => ({
+            swatch: `rama-legend-region rama-legend-${region}`, label: ramaRegionLabel(region),
+        })) : []),
+    ];
     d3.select('#angle-rama-legend').selectAll('div')
-        .data(RAMA_CLASSES)
+        .data(entries)
         .join(enter => {
-            // Punkt an der ersten Textzeile ausrichten (lange Bezeichnungen brechen in der Leiste um)
+            // Symbol an der ersten Textzeile ausrichten (lange Bezeichnungen brechen in der Leiste um)
             const div = enter.append('div').attr('class', 'd-flex align-items-start gap-2');
-            div.append('span').attr('class', 'legend-dot rama-legend-dot');
+            div.append('span');
             div.append('span').attr('class', 'rama-legend-label');
             return div;
         })
-        .call(div => div.select('.legend-dot').style('background', cls => `var(--rama-${cls})`))
-        .call(div => div.select('.rama-legend-label').text(cls => `${ramaClassLabel(cls)} (${formatInt(counts.get(cls) || 0)})`));
+        .call(div => div.select('span').attr('class', e => `${e.swatch} rama-legend-dot`).attr('style', e => e.style || null))
+        .call(div => div.select('.rama-legend-label').text(e => e.label));
+    updateSelection(canvas);
+}
+
+// Bewertung je Kategorie, Gesamtwerte und Ausreißer für Statistik und Export
+function ramachandranSummary(points) {
+    const countRegions = list => Object.fromEntries(RAMA_REGIONS.map(r => [r, list.filter(p => p.region === r).length]));
+    return {
+        total: points.length,
+        ...countRegions(points),
+        byType: RAMA_TYPES.map(type => {
+            const list = points.filter(p => p.type === type);
+            return { type, count: list.length, ...countRegions(list) };
+        }).filter(t => t.count),
+        outliers: points.filter(p => p.region === 'outlier'),
+    };
+}
+
+function renderRamachandranStats(angles) {
+    const facts = d3.select('#rama-facts');
+    if (facts.empty()) return;
+    const s = ramachandranSummary(angles.ramachandran);
+    const share = count => formatPercent(s.total ? 100 * count / s.total : 0);
+    facts.selectAll('div')
+        .data([
+            [gettext('Bewertete Aminosäuren'), formatInt(s.total)],
+            ...RAMA_REGIONS.map(r => [ramaRegionLabel(r), `${formatInt(s[r])} (${share(s[r])})`]),
+        ])
+        .join(enter => {
+            const div = enter.append('div');
+            div.append('dt');
+            div.append('dd');
+            return div;
+        })
+        .call(div => div.select('dt').text(d => d[0]))
+        .call(div => div.select('dd').text(d => d[1]));
+
+    const table = d3.select('#rama-types');
+    table.selectAll('*').remove();
+    table.append('thead').append('tr').selectAll('th')
+        .data([[gettext('Kategorie')], [gettext('Anzahl'), true], ...RAMA_REGIONS.map(r => [ramaRegionLabel(r), true])])
+        .join('th').attr('scope', 'col').attr('class', c => c[1] ? 'text-end' : null).text(c => c[0]);
+    const row = (tr, label, t) => {
+        tr.append('th').attr('scope', 'row').text(label);
+        tr.append('td').attr('class', 'text-end').text(formatInt(t.count ?? t.total));
+        RAMA_REGIONS.forEach(r => tr.append('td')
+            .attr('class', `text-end${r === 'outlier' && t[r] ? ' z-outlier' : ''}`).text(formatInt(t[r])));
+    };
+    const body = table.append('tbody');
+    s.byType.forEach(t => row(body.append('tr'), ramaTypeLabel(t.type), t));
+    row(table.append('tfoot').append('tr').attr('class', 'share-total'), gettext('Gesamt'), s);
+
+    const list = d3.select('#rama-outliers');
+    list.selectAll('*').remove();
+    d3.select('#rama-outliers-block').property('hidden', !s.outliers.length);
+    if (!s.outliers.length) return;
+    list.append('thead').append('tr').selectAll('th')
+        .data([[gettext('Kette')], [gettext('Pos.')], [gettext('Aminosäure')], [gettext('Kategorie')], ['φ', true], ['ψ', true]])
+        .join('th').attr('scope', 'col').attr('class', c => c[1] ? 'text-end' : null).text(c => c[0]);
+    const rows = list.append('tbody').selectAll('tr').data(s.outliers).join('tr');
+    rows.append('td').text(p => chainId(p.res.chain));
+    rows.append('td').text(p => p.res.pos);
+    rows.append('td').text(p => p.res.name);
+    rows.append('td').text(p => ramaTypeLabel(p.type));
+    rows.append('td').attr('class', 'text-end').text(p => formatAngle(p.phi));
+    rows.append('td').attr('class', 'text-end').text(p => formatAngle(p.psi));
+}
+
+function renderAngles(canvas, graphData) {
+    if (d3.select('#angle-rama').empty()) return;
+    const angles = analyzeAngles(graphData);
+    renderRamachandranPlot(canvas, angles);
+    renderRamachandranStats(angles);
 
     // ω
     const kinds = d3.rollup(angles.omegas, v => v.length, o => o.kind);
@@ -1739,7 +1864,16 @@ function anglesExport(graphData) {
     const residue = r => ({ residue: r.name, position: r.pos, chain: r.chain.trim() });
     return {
         unit: '°',
-        ramachandran: angles.ramachandran.map(p => ({ ...residue(p.res), class: p.cls, phi: round1(p.phi), psi: round1(p.psi) })),
+        ramachandran: angles.ramachandran.map(p => ({
+            ...residue(p.res), class: p.cls, phi: round1(p.phi), psi: round1(p.psi),
+            type: p.type, value: p.res.rama.value, region: p.region,
+        })),
+        // Bereiche nach Top8000 wie MolProbity; type: general, glycine, cis-proline, trans-proline, pre-proline, ile-val
+        ramachandran_evaluation: (s => ({
+            source: structureInfo()?.ramachandran_source ?? null,
+            total: s.total, favored: s.favored, allowed: s.allowed, outliers: s.outlier,
+            by_type: s.byType.map(t => ({ type: t.type, count: t.count, favored: t.favored, allowed: t.allowed, outliers: t.outlier })),
+        }))(ramachandranSummary(angles.ramachandran)),
         omega: {
             cis_below: CIS_MAX_OMEGA, trans_from: TRANS_MIN_OMEGA,
             count: angles.omegas.length,
@@ -1770,6 +1904,9 @@ const ramaExportStyle = () => HIST_EXPORT_STYLE + `
     .rama-general { fill: #0d6efd; }
     .rama-gly { fill: #f08c00; }
     .rama-pro { fill: #2f9e44; }
+    .rama-outlier { stroke: #e03131; stroke-width: 1.6; }
+    .rama-region-allowed { fill: #e7f1fb; }
+    .rama-region-favored { fill: #c5dcf3; }
 `;
 function ramachandranSvgText(graphData) {
     const { width, height } = RAMA_EXPORT_SIZE;
@@ -1811,6 +1948,8 @@ function drawPdfRamachandran(doc, points, left, top, size, colors) {
         doc.setFillColor(...colors[p.class]);
         doc.circle(x(p.phi), y(p.psi), 0.7, 'F');
     });
+    doc.setDrawColor(...colors.OUTLIER).setLineWidth(0.3);
+    points.filter(p => p.region === 'outlier').forEach(p => doc.circle(x(p.phi), y(p.psi), 1.3, 'S'));
     doc.setFontSize(8);
     doc.text(pdfText('φ'), (plotL + plotR) / 2, top + size - 1, { align: 'center' });
     doc.text(pdfText('ψ'), left + 1, (plotT + plotB) / 2, { angle: 90 });
@@ -2679,14 +2818,44 @@ function buildStatsPdf(data) {
     subTitle(gettext('Ramachandran-Plot'), 100);
     const ramaSize = 95;
     ensureSpace(ramaSize + 4);
-    drawPdfRamachandran(doc, ang.ramachandran, M, y + 2, ramaSize, { MUTED, LINE, ...RAMA });
+    const OUTLIER = [224, 49, 49];
+    drawPdfRamachandran(doc, ang.ramachandran, M, y + 2, ramaSize, { MUTED, LINE, OUTLIER, ...RAMA });
     RAMA_CLASSES.forEach((cls, i) => {
         const ly = y + 8 + i * 6;
         doc.setFillColor(...RAMA[cls]).circle(M + ramaSize + 10, ly - 1, 1, 'F');
         doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(...INK).text(pdfText(
             `${ramaClassLabel(cls)} (${formatInt(ang.ramachandran.filter(p => p.class === cls).length)})`), M + ramaSize + 13, ly);
     });
+    const outlierY = y + 8 + RAMA_CLASSES.length * 6;
+    doc.setDrawColor(...OUTLIER).setLineWidth(0.3).circle(M + ramaSize + 10, outlierY - 1, 1.3, 'S');
+    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(...INK).text(pdfText(
+        `${ramaRegionLabel('outlier')} (${formatInt(ang.ramachandran_evaluation.outliers)})`), M + ramaSize + 13, outlierY);
     y += ramaSize + 9;
+
+    // Ramachandran-Bewertung
+    const ev = ang.ramachandran_evaluation;
+    subTitle(gettext('Ramachandran-Bewertung'));
+    const regionCells = t => [t.favored, t.allowed, t.outliers].map(v => num(formatInt(v)));
+    table({
+        head: [[gettext('Kategorie'), num(gettext('Anzahl')), ...RAMA_REGIONS.map(r => num(ramaRegionLabel(r)))]],
+        body: ev.by_type.map(t => [ramaTypeLabel(t.type), num(formatInt(t.count)), ...regionCells(t)]),
+        foot: [[gettext('Gesamt'), num(formatInt(ev.total)), ...regionCells(ev)]],
+        tableWidth: contentW * 0.75,
+    });
+    const ramaOutliers = ang.ramachandran.filter(p => p.region === 'outlier');
+    if (ramaOutliers.length) {
+        subTitle(gettext('Ausreißer'));
+        table({
+            head: [[gettext('Kette'), gettext('Pos.'), gettext('Aminosäure'), gettext('Kategorie'), num('φ'), num('ψ')]],
+            body: ramaOutliers.map(p => [p.chain || '–', p.position, p.residue, ramaTypeLabel(p.type),
+                num(formatAngle(p.phi)), num(formatAngle(p.psi))]),
+            tableWidth: contentW * 0.75,
+        });
+    }
+    ensureSpace(8);
+    doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...MUTED)
+        .text(pdfText(interpolate(gettext('Ramachandran-Bereiche: %s'), [ev.source || ''])), M, y - 3);
+    y += 4;
     subTitle(gettext('cis- und trans-Peptidbindungen'));
     table({
         head: [[gettext('Peptidbindungen'), num('trans'), num('cis'), num(gettext('davon vor Prolin')), num(gettext('verdreht'))]],
@@ -2903,6 +3072,20 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
     renderAngles(canvas, graphData);
 
     const anglesExportBar = document.getElementById('angles-export');
+    const ramaTypeSelect = document.getElementById('rama-type');
+    if (ramaTypeSelect) {
+        d3.select(ramaTypeSelect).selectAll('option.rama-type-option').data(RAMA_TYPES).join('option')
+            .attr('class', 'rama-type-option').attr('value', t => t).text(t => ramaTypeLabel(t));
+        ramaTypeSelect.addEventListener('change', async () => {
+            ramaView.type = ramaTypeSelect.value;
+            try {
+                if (ramaView.type) await loadRamaRegions();
+            } catch (err) {
+                console.error('Ramachandran-Bereiche konnten nicht geladen werden:', err);
+            }
+            if (canvas.ramaAngles) renderRamachandranPlot(canvas, canvas.ramaAngles);
+        });
+    }
     if (anglesExportBar) {
         anglesExportBar.querySelectorAll('[data-ramachandran-format]').forEach(button => {
             button.addEventListener('click', async () => {

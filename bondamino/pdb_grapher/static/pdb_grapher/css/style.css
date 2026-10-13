@@ -237,11 +237,15 @@ input[type="file"] {
     --rama-general: #0d6efd;
     --rama-gly: #f08c00;
     --rama-pro: #2f9e44;
+    --rama-favored-fill: #c5dcf3;
+    --rama-allowed-fill: #e7f1fb;
 }
 [data-bs-theme="dark"] {
     --rama-general: #74c0fc;
     --rama-gly: #ffc078;
     --rama-pro: #69db7c;
+    --rama-favored-fill: #1f3a5a;
+    --rama-allowed-fill: #172636;
 }
 /* Quadratisch (φ und ψ gleich skaliert), so hoch wie der Tab, horizontal zentriert.
    Ist der Tab schmaler als hoch, begrenzt die Breite; das SVG skaliert über viewBox. */
@@ -255,6 +259,14 @@ input[type="file"] {
 .rama-frame { stroke: var(--bs-border-color); }
 .rama-point { cursor: pointer; stroke: var(--bs-body-bg); stroke-width: 0.8; }
 .rama-point.selected { stroke: var(--bs-body-color); stroke-width: 2; }
+.rama-point.rama-outlier { stroke: var(--z-outlier); stroke-width: 1.6; }
+.rama-point.rama-outlier.selected { stroke: var(--bs-body-color); stroke-width: 2; }
+.rama-region-allowed { fill: var(--rama-allowed-fill); }
+.rama-region-favored { fill: var(--rama-favored-fill); }
+.rama-legend-outlier { background: transparent; border: 2px solid var(--z-outlier); }
+.rama-legend-region { display: inline-block; width: 12px; height: 12px; border-radius: 2px; }
+.rama-legend-favored { background: var(--rama-favored-fill); }
+.rama-legend-allowed { background: var(--rama-allowed-fill); }
 .rama-zero { stroke: var(--bs-border-color); stroke-dasharray: 3 3; }
 .rama-minor line { stroke: var(--bs-border-color-translucent); stroke-opacity: 0.45; }
 
