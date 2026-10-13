@@ -649,7 +649,8 @@ function render(canvas, graphData, bondStyle, layout, animate) {
         )
         .call(g => g.select('title').text(n => [
             `${n.label} · ${n.residue} ${n.residue_seq}${n.i_code || ''} (${interpolate(gettext('Chain %s'), [n.chain])})`,
-            ...(anglesByCenter.get(n.id) || []).map(a => `${a.type}: ${formatAngle(a.value)}`),
+            ...(anglesByCenter.get(n.id) || []).map(a =>
+                `${a.type}: ${formatAngle(a.value)}${a.z === null ? '' : ` · Z = ${formatZ(a.z)}`}`),
         ].join('\n')))
         .call(g => g.select('text').text(n => n.label))
         .call(g => g.select('circle').transition(t).attr('fill', n => getElementColor(n.element)))
@@ -1194,24 +1195,32 @@ function renderLegend(nodes) {
         .call(item => item.select('.legend-label').text(elementSymbol));
 }
 
-// ===== Referenzwerte (Engh & Huber 1991) =====
-// e.ref = [Mittelwert, Standardabweichung, Gruppe] vom Server oder null (keine Referenz).
+// ===== Referenzwerte (Engh & Huber 2001 für das Backbone, CCP4 Monomer Library für Seitenketten) =====
+// ref = [Mittelwert, Standardabweichung, Gruppe] vom Server oder null (keine Referenz). Gruppe:
+// "backbone:N-CA:GLY" (Atome und Klasse) oder "LYS:CB-CG" (Seitenkette einer Aminosäure).
 const Z_WARN = 2;
 const Z_OUTLIER = 4;
-const zScore = e => e.ref ? (e.length - e.ref[0]) / e.ref[1] : null;
+const zOf = (value, ref) => ref ? (value - ref[0]) / ref[1] : null;
+const zScore = e => zOf(e.length, e.ref);
 const zClass = z => z === null ? 'none' : Math.abs(z) > Z_OUTLIER ? 'outlier' : Math.abs(z) > Z_WARN ? 'warn' : 'ok';
 const formatZ = z => z.toLocaleString(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: 'exceptZero' });
 const formatRmsz = v => v === null ? '–' : v.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// Bezeichnung einer Referenzgruppe, z. B. "N:CA:GLY" -> ["N–CA", "Gly"], "C:N:PRO" -> ["C–N", "vor Pro"].
+// Klassen über die Peptidbindung: X steht für die jeweils andere Aminosäure
+const REFERENCE_CLASS_LABELS = {
+    GLY: 'Gly', PRO: 'Pro', 'X-GLY': 'X–Gly', 'X-PRO': 'X–Pro', 'GLY-X': 'Gly–X', 'cis-X-PRO': 'X–Pro (cis)',
+};
+// Gruppe -> [Atome, Klasse, Abschnitt], z. B. "backbone:C-N:X-PRO" -> ["C–N", "X–Pro", "backbone"]
 function referenceGroupLabel(group) {
-    const [a, b, cls] = group.split(':');
-    const qualifier = {
-        GLY: 'Gly', ALA: 'Ala', IVT: 'Ile, Thr, Val', all: gettext('alle'), other: gettext('übrige'),
-        PRO: a === 'C' && b === 'N' ? gettext('vor Pro') : 'Pro',
-    }[cls] || cls;
-    return [`${a}–${b}`, qualifier];
+    const [section, atoms, cls] = group.split(':');
+    const label = !cls ? '' : cls === 'other' ? gettext('übrige') : REFERENCE_CLASS_LABELS[cls] || cls;
+    return [atoms.replaceAll('-', '–'), label, section];
 }
+const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1);
+const referenceSectionLabel = (section, parents) =>
+    section === 'backbone' ? capitalize(gettext('Backbone')) : aminoAcidLabel(section, parents.get(section));
+const referenceSourceText = sources => sources
+    ? interpolate(gettext('Referenzwerte: %(backbone)s (Backbone), %(sidechain)s (Seitenketten)'), sources, true) : '';
 
 function referenceText(e) {
     if (!e.ref) return gettext('Ohne Referenzwert');
@@ -1220,37 +1229,70 @@ function referenceText(e) {
     }, true);
 }
 
-// Bewertung aller Bindungen mit Referenz: Gesamtwerte, je Gruppe und Ausreißer (nach |Z| absteigend).
-function referenceStats(graphData) {
-    const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
-    const bonds = graphData.edges
-        .filter(e => nodeById.has(e.source) && nodeById.has(e.target))
-        .map(e => ({ ...e, atoms: [nodeById.get(e.source), nodeById.get(e.target)], z: zScore(e) }));
-    const rated = bonds.filter(b => b.z !== null);
-    const rmsz = items => items.length ? Math.sqrt(d3.mean(items, b => b.z * b.z)) : null;
-    const groups = d3.groups(rated, b => b.ref[2])
-        .map(([group, items]) => ({
-            group, ref: items[0].ref[0], sigma: items[0].ref[1], count: items.length,
-            mean: d3.mean(items, b => b.length), rmsz: rmsz(items),
-            outliers: items.filter(b => Math.abs(b.z) > Z_OUTLIER).length,
+// Bewertung von Bindungen oder Winkeln ({ value, ref, z, atoms }): gesamt, je Gruppe, je Abschnitt
+// (Backbone zuerst, dann die Seitenketten je Aminosäure) und Ausreißer nach |Z| absteigend.
+function rateReferences(items) {
+    const rated = items.filter(i => i.z !== null);
+    const rmsz = list => list.length ? Math.sqrt(d3.mean(list, i => i.z * i.z)) : null;
+    const outliersOf = list => list.filter(i => Math.abs(i.z) > Z_OUTLIER).length;
+    const groups = d3.groups(rated, i => i.ref[2])
+        .map(([group, list]) => ({
+            group, section: group.split(':')[0], ref: list[0].ref[0], sigma: list[0].ref[1], count: list.length,
+            mean: d3.mean(list, i => i.value), rmsz: rmsz(list), outliers: outliersOf(list),
         }))
         .sort((a, b) => d3.descending(a.count, b.count) || d3.ascending(a.group, b.group));
+    // Im Abschnitt stehen die Klassen derselben Atome beieinander (Atome nach Gesamtanzahl)
+    const atomsOf = g => g.group.split(':')[1];
+    const sectionGroups = section => {
+        const list = groups.filter(g => g.section === section);
+        const perAtoms = d3.rollup(list, v => d3.sum(v, g => g.count), atomsOf);
+        return list.sort((a, b) => d3.descending(perAtoms.get(atomsOf(a)), perAtoms.get(atomsOf(b)))
+            || d3.ascending(atomsOf(a), atomsOf(b)) || d3.descending(a.count, b.count));
+    };
+    const sections = d3.groups(rated, i => i.ref[2].split(':')[0])
+        .map(([section, list]) => ({
+            section, count: list.length, rmsz: rmsz(list), outliers: outliersOf(list),
+            groups: sectionGroups(section),
+        }))
+        .sort((a, b) => d3.descending(a.section === 'backbone', b.section === 'backbone')
+            || d3.descending(a.count, b.count) || d3.ascending(a.section, b.section));
     return {
-        total: bonds.length, rated: rated.length, rmsz: rmsz(rated), groups,
-        outliers: rated.filter(b => Math.abs(b.z) > Z_OUTLIER).sort((a, b) => d3.descending(Math.abs(a.z), Math.abs(b.z))),
+        total: items.length, rated: rated.length, rmsz: rmsz(rated), groups, sections,
+        outliers: rated.filter(i => Math.abs(i.z) > Z_OUTLIER).sort((a, b) => d3.descending(Math.abs(a.z), Math.abs(b.z))),
     };
 }
 
-const REFERENCE_OUTLIER_ROWS = 50; // Im Tab und im PDF; alle stehen im JSON-Export
+function referenceStats(graphData) {
+    const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
+    return rateReferences(graphData.edges
+        .filter(e => nodeById.has(e.source) && nodeById.has(e.target))
+        .map(e => ({ ...e, value: e.length, atoms: [nodeById.get(e.source), nodeById.get(e.target)], z: zScore(e) })));
+}
 
-function renderReferenceStats(graphData) {
-    const facts = d3.select('#stat-ref-facts');
+// Beschriftungen und Formate für Bindungslängen bzw. Bindungswinkel
+const referenceKind = kind => kind === 'angle' ? {
+    item: gettext('Winkel'), rated: gettext('Bewertete Winkel'), value: gettext('Winkel (°)'),
+    reference: gettext('Referenz (°)'), mean: gettext('Durchschnitt (°)'), delta: gettext('Abw. (°)'),
+    format: formatDegrees, formatDelta: formatDegreesDelta,
+    describe: atoms => ({ ...describeAngle(atoms), atoms: atoms.map(a => a.label).join('–') }),
+} : {
+    item: gettext('Bindung'), rated: gettext('Bewertete Bindungen'), value: gettext('Länge (Å)'),
+    reference: gettext('Referenz (Å)'), mean: gettext('Durchschnitt (Å)'), delta: gettext('Abw. (Å)'),
+    format: formatLength, formatDelta, describe: describeBond,
+};
+
+const expandedReferenceSections = new Set();
+
+// Kennzahlen, Tabelle je Abschnitt (aufklappbar bis zur Gruppe) und Ausreißer in die
+// Elemente #<prefix>-facts, -groups, -outliers(-block, -title).
+function renderReferenceStats(prefix, s, kind, parents) {
+    const facts = d3.select(`#${prefix}-facts`);
     if (facts.empty()) return;
-    const s = referenceStats(graphData);
+    const k = referenceKind(kind);
 
     facts.selectAll('div')
         .data([
-            [gettext('Bewertete Bindungen'), interpolate(gettext('%(rated)s von %(total)s (%(share)s)'), {
+            [k.rated, interpolate(gettext('%(rated)s von %(total)s (%(share)s)'), {
                 rated: formatInt(s.rated), total: formatInt(s.total), share: formatPercent(s.total ? 100 * s.rated / s.total : 0),
             }, true)],
             [gettext('RMSZ'), formatRmsz(s.rmsz)],
@@ -1265,48 +1307,100 @@ function renderReferenceStats(graphData) {
         .call(div => div.select('dt').text(d => d[0]))
         .call(div => div.select('dd').text(d => d[1]));
 
-    const groups = d3.select('#stat-ref-groups');
-    groups.selectAll('*').remove();
+    const table = d3.select(`#${prefix}-groups`);
+    table.selectAll('*').remove();
     const columns = [
-        [gettext('Bindung')], [gettext('Klasse')], [gettext('Referenz (Å)'), true], [gettext('Anzahl'), true],
-        [gettext('Durchschnitt (Å)'), true], [gettext('Abw. (Å)'), true], [gettext('RMSZ'), true], [gettext('Ausreißer'), true],
+        [k.item], [gettext('Klasse')], [k.reference, true], [gettext('Anzahl'), true],
+        [k.mean, true], [k.delta, true], [gettext('RMSZ'), true], [gettext('Ausreißer'), true],
     ];
-    groups.append('thead').append('tr').selectAll('th').data(columns).join('th')
+    table.append('thead').append('tr').selectAll('th').data(columns).join('th')
         .attr('scope', 'col').attr('class', c => c[1] ? 'text-end' : null).text(c => c[0]);
-    const rows = groups.append('tbody').selectAll('tr').data(s.groups).join('tr');
-    rows.append('th').attr('scope', 'row').text(g => referenceGroupLabel(g.group)[0]);
-    rows.append('td').text(g => referenceGroupLabel(g.group)[1]);
-    rows.append('td').attr('class', 'text-end').text(g => `${formatLength(g.ref)} ± ${formatLength(g.sigma)}`);
-    rows.append('td').attr('class', 'text-end').text(g => formatInt(g.count));
-    rows.append('td').attr('class', 'text-end').text(g => formatLength(g.mean));
-    rows.append('td').attr('class', 'text-end').text(g => formatDelta(g.mean - g.ref));
-    rows.append('td').attr('class', g => `text-end z-${zClass(g.rmsz)}`).text(g => formatRmsz(g.rmsz));
-    rows.append('td').attr('class', g => `text-end${g.outliers ? ' z-outlier' : ''}`).text(g => formatInt(g.outliers));
+    const rmszCell = (row, value) => row.append('td').attr('class', `text-end z-${zClass(value)}`).text(formatRmsz(value));
+    const outlierCell = (row, count) => row.append('td').attr('class', `text-end${count ? ' z-outlier' : ''}`).text(formatInt(count));
+    s.sections.forEach(section => {
+        const key = `${prefix}|${section.section}`;
+        const body = table.append('tbody').attr('class', 'bond-group');
+        const summary = body.append('tr').attr('class', 'bond-summary');
+        const toggle = summary.append('th').attr('scope', 'row').attr('colspan', 3)
+            .append('button').attr('type', 'button').attr('class', 'bond-toggle').html(CHEVRON_SVG);
+        toggle.append('span').text(referenceSectionLabel(section.section, parents));
+        summary.append('td').attr('class', 'text-end').text(formatInt(section.count));
+        summary.append('td').attr('colspan', 2);
+        rmszCell(summary, section.rmsz);
+        outlierCell(summary, section.outliers);
+
+        section.groups.forEach(g => {
+            const [atoms, cls] = referenceGroupLabel(g.group);
+            const tr = body.append('tr').attr('class', 'ref-detail');
+            tr.append('th').attr('scope', 'row').text(atoms);
+            tr.append('td').text(cls);
+            tr.append('td').attr('class', 'text-end').text(`${k.format(g.ref)} ± ${k.format(g.sigma)}`);
+            tr.append('td').attr('class', 'text-end').text(formatInt(g.count));
+            tr.append('td').attr('class', 'text-end').text(k.format(g.mean));
+            tr.append('td').attr('class', 'text-end').text(k.formatDelta(g.mean - g.ref));
+            rmszCell(tr, g.rmsz);
+            outlierCell(tr, g.outliers);
+        });
+        const details = body.selectAll('tr.ref-detail');
+        const setExpanded = expanded => {
+            toggle.attr('aria-expanded', expanded);
+            details.property('hidden', !expanded);
+            if (expanded) expandedReferenceSections.add(key);
+            else expandedReferenceSections.delete(key);
+        };
+        summary.on('click', () => setExpanded(!expandedReferenceSections.has(key)));
+        setExpanded(expandedReferenceSections.has(key));
+    });
+    const total = table.append('tfoot').append('tr').attr('class', 'share-total');
+    total.append('th').attr('scope', 'row').attr('colspan', 3).text(gettext('Gesamt'));
+    total.append('td').attr('class', 'text-end').text(formatInt(s.rated));
+    total.append('td').attr('colspan', 2);
+    rmszCell(total, s.rmsz);
+    outlierCell(total, s.outliers.length);
 
     // Ausreißer einzeln, nach |Z| absteigend
-    d3.select('#stat-ref-outliers-title').text(interpolate(gettext('Ausreißer (|Z| > %s)'), [Z_OUTLIER]));
-    const list = d3.select('#stat-ref-outliers');
+    d3.select(`#${prefix}-outliers-title`).text(interpolate(gettext('Ausreißer (|Z| > %s)'), [Z_OUTLIER]));
+    const list = d3.select(`#${prefix}-outliers`);
     list.selectAll('*').remove();
-    d3.select('#stat-ref-outliers-block').property('hidden', !s.outliers.length);
+    d3.select(`#${prefix}-outliers-block`).property('hidden', !s.outliers.length);
     if (!s.outliers.length) return;
     list.append('thead').append('tr').selectAll('th')
         .data([[gettext('Atome')], [gettext('Kette')], [gettext('Pos.')], [gettext('Aminosäure')],
-               [gettext('Länge (Å)'), true], [gettext('Referenz (Å)'), true], ['Z', true]])
+               [k.value, true], [k.reference, true], ['Z', true]])
         .join('th').attr('scope', 'col').attr('class', c => c[1] ? 'text-end' : null).text(c => c[0]);
     const body = list.append('tbody');
-    s.outliers.slice(0, REFERENCE_OUTLIER_ROWS).forEach(b => {
-        const d = describeBond(b.atoms);
+    s.outliers.forEach(item => {
+        const d = k.describe(item.atoms);
         const tr = body.append('tr');
         [d.atoms, d.chain, d.pos, d.residues].forEach(v => tr.append('td').text(v));
-        tr.append('td').attr('class', 'text-end').text(formatLength(b.length));
-        tr.append('td').attr('class', 'text-end').text(`${formatLength(b.ref[0])} ± ${formatLength(b.ref[1])}`);
-        tr.append('td').attr('class', 'text-end z-outlier').text(formatZ(b.z));
+        tr.append('td').attr('class', 'text-end').text(k.format(item.value));
+        tr.append('td').attr('class', 'text-end').text(`${k.format(item.ref[0])} ± ${k.format(item.ref[1])}`);
+        tr.append('td').attr('class', 'text-end z-outlier').text(formatZ(item.z));
     });
-    if (s.outliers.length > REFERENCE_OUTLIER_ROWS) {
-        body.append('tr').append('td').attr('colspan', 7).attr('class', 'small text-body-secondary')
-            .text(interpolate(gettext('… und %s weitere (vollständig im JSON-Export)'), [formatInt(s.outliers.length - REFERENCE_OUTLIER_ROWS)]));
-    }
 }
+
+// Bewertung für den JSON-Export; Bindungen und Winkel gleich aufgebaut.
+const referenceExport = (s, unit, digits) => ({
+    unit,
+    sources: structureInfo()?.reference_sources ?? null,
+    outlier_threshold: Z_OUTLIER,
+    rated: s.rated,
+    rmsz: roundTo(s.rmsz, 3),
+    outlier_count: s.outliers.length,
+    // section: "backbone" oder Residuenname der Seitenkette
+    sections: s.sections.map(sec => ({
+        section: sec.section, count: sec.count, rmsz: roundTo(sec.rmsz, 3), outliers: sec.outliers,
+        groups: sec.groups.map(g => ({
+            atoms: referenceGroupLabel(g.group)[0], class: referenceGroupLabel(g.group)[1] || null,
+            reference: g.ref, sigma: g.sigma, count: g.count, mean: roundTo(g.mean, digits),
+            rmsz: roundTo(g.rmsz, 3), outliers: g.outliers,
+        })),
+    })),
+    outliers: s.outliers.map(i => ({
+        value: roundTo(i.value, digits), reference: i.ref[0], sigma: i.ref[1], z: roundTo(i.z, 2),
+        atoms: i.atoms.map(exportAtom),
+    })),
+});
 
 // ===== Winkel: Bindungswinkel, Torsionswinkel φ/ψ und ω =====
 // Berechnet im Browser aus den Atomkoordinaten des angezeigten Models (bzw. Durchschnitts).
@@ -1404,7 +1498,9 @@ function analyzeAngles(graphData) {
         for (let i = 0; i < ids.length; i++) {
             for (let j = i + 1; j < ids.length; j++) {
                 const [a, c] = [nodes.get(ids[i]), nodes.get(ids[j])].sort((x, y) => compare(center, x, y));
-                const angle = { atoms: [a, center, c], type: `${a.label}–${center.label}–${c.label}`, value: bondAngle(a, center, c) };
+                const value = bondAngle(a, center, c);
+                const ref = center.angle_refs?.[[a.label, c.label].sort().join('|')] ?? null;
+                const angle = { atoms: [a, center, c], type: `${a.label}–${center.label}–${c.label}`, value, ref, z: zOf(value, ref) };
                 bondAngles.push(angle);
                 byCenter.set(centerId, [...(byCenter.get(centerId) || []), angle]);
             }
@@ -1536,6 +1632,7 @@ function renderAngles(canvas, graphData) {
         });
     }
 
+    renderReferenceStats('angle-ref', rateReferences(angles.bondAngles), 'angle', parentsByName(graphData.residues));
     renderAngleGroups(angles);
     updateSelection(canvas);
 }
@@ -1657,6 +1754,8 @@ function anglesExport(graphData) {
         bond_angles: angles.angleTypes.map(t => ({
             angle: t.type, count: t.count, mean: round1(t.mean), sd: round1(t.sd), min: round1(t.min), max: round1(t.max),
         })),
+        // Abweichung von Referenzwerten, Z = (Winkel − Referenz) / Standardabweichung
+        reference: referenceExport(rateReferences(angles.bondAngles), '°', 1),
     };
 }
 
@@ -2136,7 +2235,7 @@ function renderPeptideBonds(graphData) {
 
 function renderBondStats(graphData, ensemble, modelLabel) {
     if (d3.select('#stat-bond-extremes').empty() || !ensemble) return;
-    renderReferenceStats(graphData);
+    renderReferenceStats('stat-ref', referenceStats(graphData), 'bond', parentsByName(graphData.residues));
     renderPeptideBonds(graphData);
     renderDisulfides(graphData);
     renderBondExtremes(graphData, ensemble, modelLabel);
@@ -2237,23 +2336,8 @@ function buildStatsExport(graphData, ensemble, modelLabel, filename) {
         bonds: {
             length_unit: 'Å',
             ...(bonds.length ? summary(bonds) : { count: 0 }),
-            // Abweichung von Referenzwerten (Rückgrat und CA–CB), Z = (Länge − Referenz) / Standardabweichung
-            reference: {
-                source: info?.reference_source ?? null,
-                outlier_threshold: Z_OUTLIER,
-                rated: reference.rated,
-                rmsz: roundTo(reference.rmsz, 3),
-                outlier_count: reference.outliers.length,
-                groups: reference.groups.map(g => ({
-                    bond: referenceGroupLabel(g.group)[0], class: referenceGroupLabel(g.group)[1],
-                    reference: g.ref, sigma: g.sigma, count: g.count, mean: roundTo(g.mean, 3),
-                    rmsz: roundTo(g.rmsz, 3), outliers: g.outliers,
-                })),
-                outliers: reference.outliers.map(b => ({
-                    length: b.length, reference: b.ref[0], sigma: b.ref[1], z: roundTo(b.z, 2),
-                    atoms: b.atoms.map(exportAtom),
-                })),
-            },
+            // Abweichung von Referenzwerten, Z = (Länge − Referenz) / Standardabweichung
+            reference: referenceExport(reference, 'Å', 3),
             // Zwischen aufeinanderfolgenden Aminosäuren einer Kette; missing = Kettenlücken
             // via: "ssbond" (SSBOND-Eintrag) oder "distance" (SG–SG-Abstand)
             disulfides: disulfideBonds(graphData).map(b => ({ length: b.length, via: b.via, atoms: b.atoms.map(exportAtom) })),
@@ -2379,6 +2463,43 @@ function buildStatsPdf(data) {
     };
     const right = cols => Object.fromEntries(cols.map(i => [i, { halign: 'right' }]));
     const num = (content) => ({ content, styles: { halign: 'right' } });
+    const parents = new Map(data.general.amino_acid_composition.filter(a => a.parent).map(a => [a.code, a.parent]));
+
+    // Abweichung von Referenzwerten (Bindungen oder Winkel): je Abschnitt mit seinen Gruppen, Ausreißer, Quelle
+    const referenceTables = (ref, kind) => {
+        const k = referenceKind(kind);
+        const indent = { cellPadding: { top: 1.2, bottom: 1.2, left: 5, right: 1.5 } };
+        const body = ref.sections.flatMap(sec => [
+            [{ content: referenceSectionLabel(sec.section, parents), colSpan: 3, styles: { fontStyle: 'bold' } },
+             num(formatInt(sec.count)), '', '', num(formatRmsz(sec.rmsz)), num(formatInt(sec.outliers))],
+            ...sec.groups.map(grp => [{ content: grp.atoms, styles: indent }, grp.class || '',
+                `${k.format(grp.reference)} ± ${k.format(grp.sigma)}`, formatInt(grp.count), k.format(grp.mean),
+                k.formatDelta(grp.mean - grp.reference), formatRmsz(grp.rmsz), formatInt(grp.outliers)]),
+        ]);
+        table({
+            head: [[k.item, gettext('Klasse'), num(k.reference), num(gettext('Anzahl')),
+                    num(k.mean), num(k.delta), num(gettext('RMSZ')), num(gettext('Ausreißer'))]],
+            body,
+            foot: [[gettext('Gesamt'), '', '', num(formatInt(ref.rated)), '', '', num(formatRmsz(ref.rmsz)), num(formatInt(ref.outlier_count))]],
+            columnStyles: right([2, 3, 4, 5, 6, 7]),
+        });
+        if (ref.outliers.length) {
+            subTitle(interpolate(gettext('Ausreißer (|Z| > %s)'), [ref.outlier_threshold]));
+            table({
+                head: [[gettext('Atome'), gettext('Kette'), gettext('Pos.'), gettext('Aminosäure'), num(k.value), num(k.reference), num('Z')]],
+                body: ref.outliers.map(o => {
+                    const d = k.describe(o.atoms.map(nodeLikeAtom));
+                    return [d.atoms, d.chain, d.pos, d.residues, k.format(o.value),
+                            `${k.format(o.reference)} ± ${k.format(o.sigma)}`, formatZ(o.z)];
+                }),
+                columnStyles: right([4, 5, 6]),
+            });
+        }
+        ensureSpace(8);
+        doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...MUTED)
+            .text(pdfText(referenceSourceText(ref.sources)), M, y - 3);
+        y += 4;
+    };
 
     // Kopf
     doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(...INK).text(pdfText(interpolate(gettext('Statistiken – %s'), [data.file])), M, y + 4);
@@ -2465,32 +2586,8 @@ function buildStatsPdf(data) {
     // Bindungen
     const b = data.bonds;
     sectionTitle(gettext('Bindungen'));
-    const ref = b.reference;
     subTitle(gettext('Abweichung von Referenzwerten'));
-    table({
-        head: [[gettext('Bindung'), gettext('Klasse'), num(gettext('Referenz (Å)')), num(gettext('Anzahl')),
-                num(gettext('Durchschnitt (Å)')), num(gettext('Abw. (Å)')), num(gettext('RMSZ')), num(gettext('Ausreißer'))]],
-        body: ref.groups.map(grp => [grp.bond, grp.class, `${formatLength(grp.reference)} ± ${formatLength(grp.sigma)}`,
-            formatInt(grp.count), formatLength(grp.mean), formatDelta(grp.mean - grp.reference), formatRmsz(grp.rmsz), formatInt(grp.outliers)]),
-        foot: [[gettext('Gesamt'), '', '', num(formatInt(ref.rated)), '', '', num(formatRmsz(ref.rmsz)), num(formatInt(ref.outlier_count))]],
-        columnStyles: right([2, 3, 4, 5, 6, 7]),
-    });
-    if (ref.outliers.length) {
-        subTitle(interpolate(gettext('Ausreißer (|Z| > %s)'), [ref.outlier_threshold]));
-        table({
-            head: [[gettext('Atome'), gettext('Kette'), gettext('Pos.'), gettext('Aminosäure'), num(gettext('Länge (Å)')), num(gettext('Referenz (Å)')), num('Z')]],
-            body: ref.outliers.slice(0, REFERENCE_OUTLIER_ROWS).map(o => {
-                const d = describeBond(o.atoms.map(nodeLikeAtom));
-                return [d.atoms, d.chain, d.pos, d.residues, formatLength(o.length),
-                        `${formatLength(o.reference)} ± ${formatLength(o.sigma)}`, formatZ(o.z)];
-            }),
-            columnStyles: right([4, 5, 6]),
-        });
-    }
-    ensureSpace(8);
-    doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...MUTED)
-        .text(pdfText(interpolate(gettext('Referenzwerte: %s'), [ref.source || ''])), M, y - 3);
-    y += 4;
+    referenceTables(b.reference, 'bond');
     subTitle(gettext('Peptidbindungen'));
     const p = b.peptide_bonds;
     table({
@@ -2555,9 +2652,25 @@ function buildStatsPdf(data) {
             6: { halign: 'right', textColor: LENGTH_MAX },
         },
     });
-    ensureSpace(8);
-    doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...MUTED)
-        .text(pdfText(gettext('Die einzelnen Bindungen je Atompaar sind im JSON-Export enthalten.')), M, y - 3);
+    // Einzelne Bindungen je Atompaar (wie aufgeklappt im Tab); kürzeste und längste farbig markiert
+    subTitle(gettext('Einzelne Bindungen je Atompaar'));
+    table({
+        head: [[num(gettext('Länge (Å)')), num(gettext('Abw. vom Ø (Å)')), gettext('Kette'), gettext('Pos.'),
+                gettext('Atom-Nr.'), gettext('Aminosäure'), '']],
+        body: b.by_atoms.flatMap(grp => [
+            [{ content: `${grp.atoms.join('–')} (${formatInt(grp.count)})`, colSpan: 7, styles: { fontStyle: 'bold' } }],
+            ...grp.bonds.map(bond => {
+                const d = describeBond(bond.atoms.map(nodeLikeAtom));
+                const extreme = grp.min === grp.max ? null
+                    : bond.length === grp.min ? ['Min', LENGTH_MIN] : bond.length === grp.max ? ['Max', LENGTH_MAX] : null;
+                const mark = extreme ? { content: gettext(extreme[0]), styles: { textColor: extreme[1], fontStyle: 'bold' } } : '';
+                const length = extreme ? { content: formatLength(bond.length), styles: { halign: 'right', textColor: extreme[1] } }
+                    : num(formatLength(bond.length));
+                return [length, num(formatDelta(bond.length - grp.mean)), d.chain, d.pos, d.serials, d.residues, mark];
+            }),
+        ]),
+        columnStyles: right([0, 1]),
+    });
 
     // Winkel
     const ang = data.angles;
@@ -2600,6 +2713,8 @@ function buildStatsPdf(data) {
         body: ang.bond_angles.map(t => [t.angle, formatInt(t.count), fixed1(t.mean), fixed1(t.sd), fixed1(t.min), fixed1(t.max)]),
         columnStyles: right([1, 2, 3, 4, 5]),
     });
+    subTitle(gettext('Abweichung von Referenzwerten'));
+    referenceTables(ang.reference, 'angle');
 
     // Fußzeile auf jeder Seite
     const pages = doc.getNumberOfPages();

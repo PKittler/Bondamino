@@ -3,8 +3,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Bondamino\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-13 17:46+0000\n"
-"PO-Revision-Date: 2026-10-13 17:46+0000\n"
+"POT-Creation-Date: 2026-10-13 19:52+0000\n"
+"PO-Revision-Date: 2026-10-13 19:52+0000\n"
 "Last-Translator: \n"
 "Language-Team: English (United Kingdom)\n"
 "Language: en_GB\n"
@@ -13,27 +13,27 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: static/pdb_grapher/js/graph.js:651 static/pdb_grapher/js/graph.js:790
+#: static/pdb_grapher/js/graph.js:651 static/pdb_grapher/js/graph.js:791
 #, javascript-format
 msgid "Chain %s"
 msgstr "Chain %s"
 
-#: static/pdb_grapher/js/graph.js:791
+#: static/pdb_grapher/js/graph.js:792
 #, javascript-format
 msgid "Modifizierte Aminosäure, abgeleitet von %s"
 msgstr "Modified amino acid, derived from %s"
 
-#: static/pdb_grapher/js/graph.js:793
+#: static/pdb_grapher/js/graph.js:794
 #, javascript-format
 msgid "Aminosäure je Konformation: %s"
 msgstr "Amino acid per conformation: %s"
 
-#: static/pdb_grapher/js/graph.js:795
+#: static/pdb_grapher/js/graph.js:796
 #, javascript-format
 msgid "Disulfidbrücke zu %s"
 msgstr "Disulfide bridge to %s"
 
-#: static/pdb_grapher/js/graph.js:813
+#: static/pdb_grapher/js/graph.js:814
 #, javascript-format
 msgid ""
 "Kettenlücke: keine Peptidbindung zwischen %(from)s und %(to)s (Abstand "
@@ -42,688 +42,688 @@ msgstr ""
 "Chain break: no peptide bond between %(from)s and %(to)s (distance "
 "%(distance)s Å)"
 
-#: static/pdb_grapher/js/graph.js:832
+#: static/pdb_grapher/js/graph.js:833
 #, javascript-format
 msgid "cis-Peptidbindung zwischen %(from)s und %(to)s (ω = %(omega)s)"
 msgstr "cis peptide bond between %(from)s and %(to)s (ω = %(omega)s)"
 
-#: static/pdb_grapher/js/graph.js:908
+#: static/pdb_grapher/js/graph.js:909
 msgid "Record"
 msgstr "Record"
 
-#: static/pdb_grapher/js/graph.js:908
+#: static/pdb_grapher/js/graph.js:909
 msgid "Record-Typ (ATOM/HETATM)"
 msgstr "Record type (ATOM/HETATM)"
 
-#: static/pdb_grapher/js/graph.js:909
+#: static/pdb_grapher/js/graph.js:910
 msgid "Nr."
 msgstr "No."
 
-#: static/pdb_grapher/js/graph.js:909
+#: static/pdb_grapher/js/graph.js:910
 msgid "Atom-Seriennummer"
 msgstr "Atom serial number"
 
-#: static/pdb_grapher/js/graph.js:910
+#: static/pdb_grapher/js/graph.js:911
 msgid "Atom"
 msgstr "Atom"
 
-#: static/pdb_grapher/js/graph.js:910
+#: static/pdb_grapher/js/graph.js:911
 msgid "Atomname"
 msgstr "Atom name"
 
-#: static/pdb_grapher/js/graph.js:911
+#: static/pdb_grapher/js/graph.js:912
 msgid "Alt"
 msgstr "Alt"
 
-#: static/pdb_grapher/js/graph.js:911
+#: static/pdb_grapher/js/graph.js:912
 msgid "Alternate Location"
 msgstr "Alternate location"
 
-#: static/pdb_grapher/js/graph.js:912
+#: static/pdb_grapher/js/graph.js:913
 msgid "Residue"
 msgstr "Residue"
 
-#: static/pdb_grapher/js/graph.js:912
+#: static/pdb_grapher/js/graph.js:913
 msgid "Residuename"
 msgstr "Residue name"
 
-#: static/pdb_grapher/js/graph.js:913
+#: static/pdb_grapher/js/graph.js:914
 msgid "Chain"
 msgstr "Chain"
 
-#: static/pdb_grapher/js/graph.js:913
+#: static/pdb_grapher/js/graph.js:914
 msgid "Chain-ID"
 msgstr "Chain ID"
 
-#: static/pdb_grapher/js/graph.js:914 static/pdb_grapher/js/graph.js:1293
-#: static/pdb_grapher/js/graph.js:1515 static/pdb_grapher/js/graph.js:1605
-#: static/pdb_grapher/js/graph.js:1759 static/pdb_grapher/js/graph.js:1879
-#: static/pdb_grapher/js/graph.js:2093 static/pdb_grapher/js/graph.js:2465
-#: static/pdb_grapher/js/graph.js:2494 static/pdb_grapher/js/graph.js:2516
-#: static/pdb_grapher/js/graph.js:2571
+#: static/pdb_grapher/js/graph.js:915 static/pdb_grapher/js/graph.js:1368
+#: static/pdb_grapher/js/graph.js:1621 static/pdb_grapher/js/graph.js:1712
+#: static/pdb_grapher/js/graph.js:1874 static/pdb_grapher/js/graph.js:1994
+#: static/pdb_grapher/js/graph.js:2208 static/pdb_grapher/js/graph.js:2489
+#: static/pdb_grapher/js/graph.js:2607 static/pdb_grapher/js/graph.js:2629
+#: static/pdb_grapher/js/graph.js:2658 static/pdb_grapher/js/graph.js:2700
 msgid "Pos."
 msgstr "Pos."
 
-#: static/pdb_grapher/js/graph.js:914
+#: static/pdb_grapher/js/graph.js:915
 msgid "Residue-Sequenznummer"
 msgstr "Residue sequence number"
 
-#: static/pdb_grapher/js/graph.js:915
+#: static/pdb_grapher/js/graph.js:916
 msgid "iCode"
 msgstr "iCode"
 
-#: static/pdb_grapher/js/graph.js:915
+#: static/pdb_grapher/js/graph.js:916
 msgid "Insertion Code"
 msgstr "Insertion code"
 
-#: static/pdb_grapher/js/graph.js:916
+#: static/pdb_grapher/js/graph.js:917
 msgid "x-Koordinate (Å)"
 msgstr "x coordinate (Å)"
 
-#: static/pdb_grapher/js/graph.js:917
+#: static/pdb_grapher/js/graph.js:918
 msgid "y-Koordinate (Å)"
 msgstr "y coordinate (Å)"
 
-#: static/pdb_grapher/js/graph.js:918
+#: static/pdb_grapher/js/graph.js:919
 msgid "z-Koordinate (Å)"
 msgstr "z coordinate (Å)"
 
-#: static/pdb_grapher/js/graph.js:919
+#: static/pdb_grapher/js/graph.js:920
 msgid "Besetzung"
 msgstr "Occupancy"
 
-#: static/pdb_grapher/js/graph.js:919
+#: static/pdb_grapher/js/graph.js:920
 msgid "Occupancy"
 msgstr "Occupancy"
 
-#: static/pdb_grapher/js/graph.js:920
+#: static/pdb_grapher/js/graph.js:921
 msgid "B-Faktor"
 msgstr "B-factor"
 
-#: static/pdb_grapher/js/graph.js:920
+#: static/pdb_grapher/js/graph.js:921
 msgid "Temperaturfaktor (Å²)"
 msgstr "Temperature factor (Å²)"
 
-#: static/pdb_grapher/js/graph.js:921 static/pdb_grapher/js/graph.js:921
-#: static/pdb_grapher/js/graph.js:1155 static/pdb_grapher/js/graph.js:2395
-#: static/pdb_grapher/js/graph.js:2437
+#: static/pdb_grapher/js/graph.js:922 static/pdb_grapher/js/graph.js:922
+#: static/pdb_grapher/js/graph.js:1156 static/pdb_grapher/js/graph.js:2532
+#: static/pdb_grapher/js/graph.js:2574
 msgid "Element"
 msgstr "Element"
 
-#: static/pdb_grapher/js/graph.js:922
+#: static/pdb_grapher/js/graph.js:923
 msgid "Ladung"
 msgstr "Charge"
 
-#: static/pdb_grapher/js/graph.js:922
+#: static/pdb_grapher/js/graph.js:923
 msgid "Formalladung"
 msgstr "Formal charge"
 
-#: static/pdb_grapher/js/graph.js:1008
+#: static/pdb_grapher/js/graph.js:1009
 msgid "Alanin"
 msgstr "Alanine"
 
-#: static/pdb_grapher/js/graph.js:1008
+#: static/pdb_grapher/js/graph.js:1009
 msgid "Arginin"
 msgstr "Arginine"
 
-#: static/pdb_grapher/js/graph.js:1008
+#: static/pdb_grapher/js/graph.js:1009
 msgid "Asparagin"
 msgstr "Asparagine"
 
-#: static/pdb_grapher/js/graph.js:1008
+#: static/pdb_grapher/js/graph.js:1009
 msgid "Asparaginsäure"
 msgstr "Aspartic acid"
 
-#: static/pdb_grapher/js/graph.js:1009
+#: static/pdb_grapher/js/graph.js:1010
 msgid "Cystein"
 msgstr "Cysteine"
 
-#: static/pdb_grapher/js/graph.js:1009
+#: static/pdb_grapher/js/graph.js:1010
 msgid "Glutamin"
 msgstr "Glutamine"
 
-#: static/pdb_grapher/js/graph.js:1009
+#: static/pdb_grapher/js/graph.js:1010
 msgid "Glutaminsäure"
 msgstr "Glutamic acid"
 
-#: static/pdb_grapher/js/graph.js:1009 static/pdb_grapher/js/graph.js:1350
+#: static/pdb_grapher/js/graph.js:1010 static/pdb_grapher/js/graph.js:1444
 msgid "Glycin"
 msgstr "Glycine"
 
-#: static/pdb_grapher/js/graph.js:1010
+#: static/pdb_grapher/js/graph.js:1011
 msgid "Histidin"
 msgstr "Histidine"
 
-#: static/pdb_grapher/js/graph.js:1010
+#: static/pdb_grapher/js/graph.js:1011
 msgid "Isoleucin"
 msgstr "Isoleucine"
 
-#: static/pdb_grapher/js/graph.js:1010
+#: static/pdb_grapher/js/graph.js:1011
 msgid "Leucin"
 msgstr "Leucine"
 
-#: static/pdb_grapher/js/graph.js:1010
+#: static/pdb_grapher/js/graph.js:1011
 msgid "Lysin"
 msgstr "Lysine"
 
-#: static/pdb_grapher/js/graph.js:1011
+#: static/pdb_grapher/js/graph.js:1012
 msgid "Methionin"
 msgstr "Methionine"
 
-#: static/pdb_grapher/js/graph.js:1011
+#: static/pdb_grapher/js/graph.js:1012
 msgid "Phenylalanin"
 msgstr "Phenylalanine"
 
-#: static/pdb_grapher/js/graph.js:1011 static/pdb_grapher/js/graph.js:1350
+#: static/pdb_grapher/js/graph.js:1012 static/pdb_grapher/js/graph.js:1444
 msgid "Prolin"
 msgstr "Proline"
 
-#: static/pdb_grapher/js/graph.js:1011
+#: static/pdb_grapher/js/graph.js:1012
 msgid "Serin"
 msgstr "Serine"
 
-#: static/pdb_grapher/js/graph.js:1012
+#: static/pdb_grapher/js/graph.js:1013
 msgid "Threonin"
 msgstr "Threonine"
 
-#: static/pdb_grapher/js/graph.js:1012
+#: static/pdb_grapher/js/graph.js:1013
 msgid "Tryptophan"
 msgstr "Tryptophan"
 
-#: static/pdb_grapher/js/graph.js:1012
+#: static/pdb_grapher/js/graph.js:1013
 msgid "Tyrosin"
 msgstr "Tyrosine"
 
-#: static/pdb_grapher/js/graph.js:1012
+#: static/pdb_grapher/js/graph.js:1013
 msgid "Valin"
 msgstr "Valine"
 
-#: static/pdb_grapher/js/graph.js:1018
+#: static/pdb_grapher/js/graph.js:1019
 #, javascript-format
 msgid "%s (modifiziert)"
 msgstr "%s (modified)"
 
-#: static/pdb_grapher/js/graph.js:1025
+#: static/pdb_grapher/js/graph.js:1026 static/pdb_grapher/js/graph.js:1221
 msgid "Backbone"
 msgstr "backbone"
 
-#: static/pdb_grapher/js/graph.js:1025
+#: static/pdb_grapher/js/graph.js:1026
 msgid "Seitenkette"
 msgstr "side chain"
 
-#: static/pdb_grapher/js/graph.js:1025 static/pdb_grapher/js/graph.js:2481
+#: static/pdb_grapher/js/graph.js:1026 static/pdb_grapher/js/graph.js:2594
 msgid "Peptidbindung"
 msgstr "peptide bond"
 
-#: static/pdb_grapher/js/graph.js:1026
+#: static/pdb_grapher/js/graph.js:1027
 msgid "Disulfidbrücke"
 msgstr "Disulfide bridge"
 
-#: static/pdb_grapher/js/graph.js:1091 static/pdb_grapher/js/graph.js:2073
+#: static/pdb_grapher/js/graph.js:1092 static/pdb_grapher/js/graph.js:2188
 #, javascript-format
 msgid "Kette %s"
 msgstr "Chain %s"
 
-#: static/pdb_grapher/js/graph.js:1119 static/pdb_grapher/js/graph.js:1271
-#: static/pdb_grapher/js/graph.js:1557 static/pdb_grapher/js/graph.js:1826
-#: static/pdb_grapher/js/graph.js:2395 static/pdb_grapher/js/graph.js:2403
-#: static/pdb_grapher/js/graph.js:2419 static/pdb_grapher/js/graph.js:2429
-#: static/pdb_grapher/js/graph.js:2455 static/pdb_grapher/js/graph.js:2481
-#: static/pdb_grapher/js/graph.js:2531 static/pdb_grapher/js/graph.js:2582
+#: static/pdb_grapher/js/graph.js:1120 static/pdb_grapher/js/graph.js:1313
+#: static/pdb_grapher/js/graph.js:1664 static/pdb_grapher/js/graph.js:1941
+#: static/pdb_grapher/js/graph.js:2480 static/pdb_grapher/js/graph.js:2532
+#: static/pdb_grapher/js/graph.js:2540 static/pdb_grapher/js/graph.js:2556
+#: static/pdb_grapher/js/graph.js:2566 static/pdb_grapher/js/graph.js:2594
+#: static/pdb_grapher/js/graph.js:2644 static/pdb_grapher/js/graph.js:2711
 msgid "Anzahl"
 msgstr "Count"
 
-#: static/pdb_grapher/js/graph.js:1120 static/pdb_grapher/js/graph.js:2395
-#: static/pdb_grapher/js/graph.js:2403 static/pdb_grapher/js/graph.js:2419
-#: static/pdb_grapher/js/graph.js:2429 static/pdb_grapher/js/graph.js:2481
+#: static/pdb_grapher/js/graph.js:1121 static/pdb_grapher/js/graph.js:2532
+#: static/pdb_grapher/js/graph.js:2540 static/pdb_grapher/js/graph.js:2556
+#: static/pdb_grapher/js/graph.js:2566 static/pdb_grapher/js/graph.js:2594
 msgid "Anteil"
 msgstr "Share"
 
-#: static/pdb_grapher/js/graph.js:1135 static/pdb_grapher/js/graph.js:2425
-#: static/pdb_grapher/js/graph.js:2459
+#: static/pdb_grapher/js/graph.js:1136 static/pdb_grapher/js/graph.js:1355
+#: static/pdb_grapher/js/graph.js:2483 static/pdb_grapher/js/graph.js:2562
 msgid "Gesamt"
 msgstr "Total"
 
-#: static/pdb_grapher/js/graph.js:1166 static/pdb_grapher/js/graph.js:1293
-#: static/pdb_grapher/js/graph.js:1605 static/pdb_grapher/js/graph.js:1759
-#: static/pdb_grapher/js/graph.js:1879 static/pdb_grapher/js/graph.js:2403
-#: static/pdb_grapher/js/graph.js:2443 static/pdb_grapher/js/graph.js:2465
-#: static/pdb_grapher/js/graph.js:2516
+#: static/pdb_grapher/js/graph.js:1167 static/pdb_grapher/js/graph.js:1368
+#: static/pdb_grapher/js/graph.js:1712 static/pdb_grapher/js/graph.js:1874
+#: static/pdb_grapher/js/graph.js:1994 static/pdb_grapher/js/graph.js:2489
+#: static/pdb_grapher/js/graph.js:2540 static/pdb_grapher/js/graph.js:2580
+#: static/pdb_grapher/js/graph.js:2629 static/pdb_grapher/js/graph.js:2659
 msgid "Aminosäure"
 msgstr "Amino acid"
 
-#: static/pdb_grapher/js/graph.js:1210
-msgid "alle"
-msgstr "all"
-
-#: static/pdb_grapher/js/graph.js:1210
+#: static/pdb_grapher/js/graph.js:1216
 msgid "übrige"
 msgstr "other"
 
-#: static/pdb_grapher/js/graph.js:1211
-msgid "vor Pro"
-msgstr "before Pro"
+#: static/pdb_grapher/js/graph.js:1223
+#, javascript-format
+msgid "Referenzwerte: %(backbone)s (Backbone), %(sidechain)s (Seitenketten)"
+msgstr "Reference values: %(backbone)s (backbone), %(sidechain)s (side chains)"
 
-#: static/pdb_grapher/js/graph.js:1217
+#: static/pdb_grapher/js/graph.js:1226
 msgid "Ohne Referenzwert"
 msgstr "No reference value"
 
-#: static/pdb_grapher/js/graph.js:1218
+#: static/pdb_grapher/js/graph.js:1227
 #, javascript-format
 msgid "Referenz %(ref)s ± %(sigma)s Å · Z = %(z)s"
 msgstr "Reference %(ref)s ± %(sigma)s Å · Z = %(z)s"
 
-#: static/pdb_grapher/js/graph.js:1253
+#: static/pdb_grapher/js/graph.js:1274 static/pdb_grapher/js/graph.js:1664
+#: static/pdb_grapher/js/graph.js:2678 static/pdb_grapher/js/graph.js:2711
+msgid "Winkel"
+msgstr "Angle"
+
+#: static/pdb_grapher/js/graph.js:1274
+msgid "Bewertete Winkel"
+msgstr "Assessed angles"
+
+#: static/pdb_grapher/js/graph.js:1274 static/pdb_grapher/js/graph.js:1712
+msgid "Winkel (°)"
+msgstr "Angle (°)"
+
+#: static/pdb_grapher/js/graph.js:1275
+msgid "Referenz (°)"
+msgstr "Reference (°)"
+
+#: static/pdb_grapher/js/graph.js:1275 static/pdb_grapher/js/graph.js:1664
+#: static/pdb_grapher/js/graph.js:2711
+msgid "Durchschnitt (°)"
+msgstr "Mean (°)"
+
+#: static/pdb_grapher/js/graph.js:1275
+msgid "Abw. (°)"
+msgstr "Dev. (°)"
+
+#: static/pdb_grapher/js/graph.js:1279
+msgid "Bindung"
+msgstr "Bond"
+
+#: static/pdb_grapher/js/graph.js:1279
 msgid "Bewertete Bindungen"
 msgstr "Assessed bonds"
 
-#: static/pdb_grapher/js/graph.js:1253
+#: static/pdb_grapher/js/graph.js:1279 static/pdb_grapher/js/graph.js:1873
+#: static/pdb_grapher/js/graph.js:1994 static/pdb_grapher/js/graph.js:2208
+#: static/pdb_grapher/js/graph.js:2607 static/pdb_grapher/js/graph.js:2629
+#: static/pdb_grapher/js/graph.js:2658
+msgid "Länge (Å)"
+msgstr "Length (Å)"
+
+#: static/pdb_grapher/js/graph.js:1280
+msgid "Referenz (Å)"
+msgstr "Reference (Å)"
+
+#: static/pdb_grapher/js/graph.js:1280 static/pdb_grapher/js/graph.js:1875
+#: static/pdb_grapher/js/graph.js:1941 static/pdb_grapher/js/graph.js:2629
+#: static/pdb_grapher/js/graph.js:2644
+msgid "Durchschnitt (Å)"
+msgstr "Average (Å)"
+
+#: static/pdb_grapher/js/graph.js:1280
+msgid "Abw. (Å)"
+msgstr "Dev. (Å)"
+
+#: static/pdb_grapher/js/graph.js:1295
 #, javascript-format
 msgid "%(rated)s von %(total)s (%(share)s)"
 msgstr "%(rated)s of %(total)s (%(share)s)"
 
-#: static/pdb_grapher/js/graph.js:1256 static/pdb_grapher/js/graph.js:1272
-#: static/pdb_grapher/js/graph.js:2456
+#: static/pdb_grapher/js/graph.js:1298 static/pdb_grapher/js/graph.js:1314
+#: static/pdb_grapher/js/graph.js:2481
 msgid "RMSZ"
 msgstr "RMSZ"
 
-#: static/pdb_grapher/js/graph.js:1257 static/pdb_grapher/js/graph.js:1287
-#: static/pdb_grapher/js/graph.js:2463
+#: static/pdb_grapher/js/graph.js:1299 static/pdb_grapher/js/graph.js:1362
+#: static/pdb_grapher/js/graph.js:2487
 #, javascript-format
 msgid "Ausreißer (|Z| > %s)"
 msgstr "Outliers (|Z| > %s)"
 
-#: static/pdb_grapher/js/graph.js:1271 static/pdb_grapher/js/graph.js:2455
-msgid "Bindung"
-msgstr "Bond"
-
-#: static/pdb_grapher/js/graph.js:1271 static/pdb_grapher/js/graph.js:2455
+#: static/pdb_grapher/js/graph.js:1313 static/pdb_grapher/js/graph.js:2480
 msgid "Klasse"
 msgstr "Class"
 
-#: static/pdb_grapher/js/graph.js:1271 static/pdb_grapher/js/graph.js:1294
-#: static/pdb_grapher/js/graph.js:2455 static/pdb_grapher/js/graph.js:2465
-msgid "Referenz (Å)"
-msgstr "Reference (Å)"
-
-#: static/pdb_grapher/js/graph.js:1272 static/pdb_grapher/js/graph.js:1760
-#: static/pdb_grapher/js/graph.js:1826 static/pdb_grapher/js/graph.js:2456
-#: static/pdb_grapher/js/graph.js:2516 static/pdb_grapher/js/graph.js:2531
-msgid "Durchschnitt (Å)"
-msgstr "Average (Å)"
-
-#: static/pdb_grapher/js/graph.js:1272 static/pdb_grapher/js/graph.js:2456
-msgid "Abw. (Å)"
-msgstr "Dev. (Å)"
-
-#: static/pdb_grapher/js/graph.js:1272 static/pdb_grapher/js/graph.js:2456
+#: static/pdb_grapher/js/graph.js:1314 static/pdb_grapher/js/graph.js:2481
 msgid "Ausreißer"
 msgstr "Outliers"
 
-#: static/pdb_grapher/js/graph.js:1293 static/pdb_grapher/js/graph.js:1758
-#: static/pdb_grapher/js/graph.js:1825 static/pdb_grapher/js/graph.js:2379
-#: static/pdb_grapher/js/graph.js:2465 static/pdb_grapher/js/graph.js:2516
-#: static/pdb_grapher/js/graph.js:2531
+#: static/pdb_grapher/js/graph.js:1368 static/pdb_grapher/js/graph.js:1873
+#: static/pdb_grapher/js/graph.js:1940 static/pdb_grapher/js/graph.js:2489
+#: static/pdb_grapher/js/graph.js:2516 static/pdb_grapher/js/graph.js:2629
+#: static/pdb_grapher/js/graph.js:2644
 msgid "Atome"
 msgstr "Atoms"
 
-#: static/pdb_grapher/js/graph.js:1293 static/pdb_grapher/js/graph.js:1515
-#: static/pdb_grapher/js/graph.js:1605 static/pdb_grapher/js/graph.js:1759
-#: static/pdb_grapher/js/graph.js:1879 static/pdb_grapher/js/graph.js:2093
-#: static/pdb_grapher/js/graph.js:2429 static/pdb_grapher/js/graph.js:2465
-#: static/pdb_grapher/js/graph.js:2494 static/pdb_grapher/js/graph.js:2516
-#: static/pdb_grapher/js/graph.js:2571
+#: static/pdb_grapher/js/graph.js:1368 static/pdb_grapher/js/graph.js:1621
+#: static/pdb_grapher/js/graph.js:1712 static/pdb_grapher/js/graph.js:1874
+#: static/pdb_grapher/js/graph.js:1994 static/pdb_grapher/js/graph.js:2208
+#: static/pdb_grapher/js/graph.js:2489 static/pdb_grapher/js/graph.js:2566
+#: static/pdb_grapher/js/graph.js:2607 static/pdb_grapher/js/graph.js:2629
+#: static/pdb_grapher/js/graph.js:2658 static/pdb_grapher/js/graph.js:2700
 msgid "Kette"
 msgstr "Chain"
 
-#: static/pdb_grapher/js/graph.js:1294 static/pdb_grapher/js/graph.js:1758
-#: static/pdb_grapher/js/graph.js:1879 static/pdb_grapher/js/graph.js:2093
-#: static/pdb_grapher/js/graph.js:2465 static/pdb_grapher/js/graph.js:2494
-#: static/pdb_grapher/js/graph.js:2516
-msgid "Länge (Å)"
-msgstr "Length (Å)"
-
-#: static/pdb_grapher/js/graph.js:1307
-#, javascript-format
-msgid "… und %s weitere (vollständig im JSON-Export)"
-msgstr "… and %s more (all included in the JSON export)"
-
-#: static/pdb_grapher/js/graph.js:1350
+#: static/pdb_grapher/js/graph.js:1444
 msgid "Übrige Aminosäuren"
 msgstr "Other amino acids"
 
-#: static/pdb_grapher/js/graph.js:1469
+#: static/pdb_grapher/js/graph.js:1575
 #, javascript-format
 msgid "Ramachandran-Plot mit %s Aminosäuren"
 msgstr "Ramachandran plot with %s amino acids"
 
-#: static/pdb_grapher/js/graph.js:1494 static/pdb_grapher/js/graph.js:2478
-#: static/pdb_grapher/js/graph.js:2563
+#: static/pdb_grapher/js/graph.js:1600 static/pdb_grapher/js/graph.js:2591
+#: static/pdb_grapher/js/graph.js:2692
 msgid "Peptidbindungen"
 msgstr "Peptide bonds"
 
-#: static/pdb_grapher/js/graph.js:1496
+#: static/pdb_grapher/js/graph.js:1602
 #, javascript-format
 msgid "%(count)s (davon vor Prolin: %(pro)s)"
 msgstr "%(count)s (before proline: %(pro)s)"
 
-#: static/pdb_grapher/js/graph.js:1497 static/pdb_grapher/js/graph.js:1626
-#: static/pdb_grapher/js/graph.js:2563 static/pdb_grapher/js/graph.js:2574
+#: static/pdb_grapher/js/graph.js:1603 static/pdb_grapher/js/graph.js:1733
+#: static/pdb_grapher/js/graph.js:2692 static/pdb_grapher/js/graph.js:2703
 msgid "verdreht"
 msgstr "twisted"
 
-#: static/pdb_grapher/js/graph.js:1515 static/pdb_grapher/js/graph.js:2379
-#: static/pdb_grapher/js/graph.js:2401 static/pdb_grapher/js/graph.js:2443
-#: static/pdb_grapher/js/graph.js:2571
+#: static/pdb_grapher/js/graph.js:1621 static/pdb_grapher/js/graph.js:2516
+#: static/pdb_grapher/js/graph.js:2538 static/pdb_grapher/js/graph.js:2580
+#: static/pdb_grapher/js/graph.js:2700
 msgid "Aminosäuren"
 msgstr "Amino acids"
 
-#: static/pdb_grapher/js/graph.js:1515 static/pdb_grapher/js/graph.js:2571
+#: static/pdb_grapher/js/graph.js:1621 static/pdb_grapher/js/graph.js:2700
 msgid "Art"
 msgstr "Type"
 
-#: static/pdb_grapher/js/graph.js:1557 static/pdb_grapher/js/graph.js:2549
-#: static/pdb_grapher/js/graph.js:2582
-msgid "Winkel"
-msgstr "Angle"
-
-#: static/pdb_grapher/js/graph.js:1557 static/pdb_grapher/js/graph.js:2582
-msgid "Durchschnitt (°)"
-msgstr "Mean (°)"
-
-#: static/pdb_grapher/js/graph.js:1558 static/pdb_grapher/js/graph.js:2582
+#: static/pdb_grapher/js/graph.js:1665 static/pdb_grapher/js/graph.js:2711
 msgid "Std.-Abw. (°)"
 msgstr "SD (°)"
 
-#: static/pdb_grapher/js/graph.js:1558 static/pdb_grapher/js/graph.js:2583
+#: static/pdb_grapher/js/graph.js:1665 static/pdb_grapher/js/graph.js:2712
 msgid "Min (°)"
 msgstr "Min (°)"
 
-#: static/pdb_grapher/js/graph.js:1559 static/pdb_grapher/js/graph.js:2583
+#: static/pdb_grapher/js/graph.js:1666 static/pdb_grapher/js/graph.js:2712
 msgid "Max (°)"
 msgstr "Max (°)"
 
-#: static/pdb_grapher/js/graph.js:1596
+#: static/pdb_grapher/js/graph.js:1703
 msgid "Bindungswinkel gesamt"
 msgstr "Total bond angles"
 
-#: static/pdb_grapher/js/graph.js:1605
-msgid "Winkel (°)"
-msgstr "Angle (°)"
-
-#: static/pdb_grapher/js/graph.js:1605
+#: static/pdb_grapher/js/graph.js:1712
 msgid "Abw. vom Ø (°)"
 msgstr "Dev. from mean (°)"
 
-#: static/pdb_grapher/js/graph.js:1605 static/pdb_grapher/js/graph.js:1759
-#: static/pdb_grapher/js/graph.js:1879 static/pdb_grapher/js/graph.js:2516
+#: static/pdb_grapher/js/graph.js:1712 static/pdb_grapher/js/graph.js:1874
+#: static/pdb_grapher/js/graph.js:1994 static/pdb_grapher/js/graph.js:2629
+#: static/pdb_grapher/js/graph.js:2659
 msgid "Atom-Nr."
 msgstr "Atom no."
 
-#: static/pdb_grapher/js/graph.js:1619 static/pdb_grapher/js/graph.js:1892
+#: static/pdb_grapher/js/graph.js:1726 static/pdb_grapher/js/graph.js:2007
 msgid "Min"
 msgstr "Min"
 
-#: static/pdb_grapher/js/graph.js:1620 static/pdb_grapher/js/graph.js:1893
+#: static/pdb_grapher/js/graph.js:1727 static/pdb_grapher/js/graph.js:2008
 msgid "Max"
 msgstr "Max"
 
-#: static/pdb_grapher/js/graph.js:1625 static/pdb_grapher/js/graph.js:2574
+#: static/pdb_grapher/js/graph.js:1732 static/pdb_grapher/js/graph.js:2703
 msgid "cis (vor Prolin)"
 msgstr "cis (before proline)"
 
-#: static/pdb_grapher/js/graph.js:1625 static/pdb_grapher/js/graph.js:2574
+#: static/pdb_grapher/js/graph.js:1732 static/pdb_grapher/js/graph.js:2703
 msgid "cis"
 msgstr "cis"
 
-#: static/pdb_grapher/js/graph.js:1737 static/pdb_grapher/js/graph.js:2657
+#: static/pdb_grapher/js/graph.js:1852 static/pdb_grapher/js/graph.js:2788
 #, javascript-format
 msgid "Model %s"
 msgstr "Model %s"
 
-#: static/pdb_grapher/js/graph.js:1748 static/pdb_grapher/js/graph.js:2518
+#: static/pdb_grapher/js/graph.js:1863 static/pdb_grapher/js/graph.js:2631
 msgid "Alle Models"
 msgstr "All models"
 
-#: static/pdb_grapher/js/graph.js:1749 static/pdb_grapher/js/graph.js:1753
-#: static/pdb_grapher/js/graph.js:2507
+#: static/pdb_grapher/js/graph.js:1864 static/pdb_grapher/js/graph.js:1868
+#: static/pdb_grapher/js/graph.js:2620
 msgid "Kürzeste Bindung"
 msgstr "Shortest bond"
 
-#: static/pdb_grapher/js/graph.js:1750 static/pdb_grapher/js/graph.js:1754
-#: static/pdb_grapher/js/graph.js:2507
+#: static/pdb_grapher/js/graph.js:1865 static/pdb_grapher/js/graph.js:1869
+#: static/pdb_grapher/js/graph.js:2620
 msgid "Längste Bindung"
 msgstr "Longest bond"
 
-#: static/pdb_grapher/js/graph.js:1752 static/pdb_grapher/js/graph.js:2518
+#: static/pdb_grapher/js/graph.js:1867 static/pdb_grapher/js/graph.js:2631
 msgid "Ausgewähltes Model"
 msgstr "Selected model"
 
-#: static/pdb_grapher/js/graph.js:1758 static/pdb_grapher/js/graph.js:2516
+#: static/pdb_grapher/js/graph.js:1873 static/pdb_grapher/js/graph.js:2629
 msgid "Model"
 msgstr "Model"
 
-#: static/pdb_grapher/js/graph.js:1760 static/pdb_grapher/js/graph.js:1827
-#: static/pdb_grapher/js/graph.js:2516 static/pdb_grapher/js/graph.js:2531
+#: static/pdb_grapher/js/graph.js:1875 static/pdb_grapher/js/graph.js:1942
+#: static/pdb_grapher/js/graph.js:2629 static/pdb_grapher/js/graph.js:2644
 msgid "Median (Å)"
 msgstr "Median (Å)"
 
-#: static/pdb_grapher/js/graph.js:1777 static/pdb_grapher/js/graph.js:2508
+#: static/pdb_grapher/js/graph.js:1892 static/pdb_grapher/js/graph.js:2621
 msgid "Keine Bindungen"
 msgstr "No bonds"
 
-#: static/pdb_grapher/js/graph.js:1786
+#: static/pdb_grapher/js/graph.js:1901
 msgid "Abweichung der Bindung vom Durchschnitt"
 msgstr "Deviation of the bond from the average"
 
-#: static/pdb_grapher/js/graph.js:1788
+#: static/pdb_grapher/js/graph.js:1903
 msgid "Abweichung der Bindung vom Median"
 msgstr "Deviation of the bond from the median"
 
-#: static/pdb_grapher/js/graph.js:1825 static/pdb_grapher/js/graph.js:2379
-#: static/pdb_grapher/js/graph.js:2531
+#: static/pdb_grapher/js/graph.js:1940 static/pdb_grapher/js/graph.js:2516
+#: static/pdb_grapher/js/graph.js:2644
 msgid "Ketten"
 msgstr "Chains"
 
-#: static/pdb_grapher/js/graph.js:1827 static/pdb_grapher/js/graph.js:2531
+#: static/pdb_grapher/js/graph.js:1942 static/pdb_grapher/js/graph.js:2644
 msgid "Min (Å)"
 msgstr "Min (Å)"
 
-#: static/pdb_grapher/js/graph.js:1828 static/pdb_grapher/js/graph.js:2531
+#: static/pdb_grapher/js/graph.js:1943 static/pdb_grapher/js/graph.js:2644
 msgid "Max (Å)"
 msgstr "Max (Å)"
 
-#: static/pdb_grapher/js/graph.js:1828 static/pdb_grapher/js/graph.js:2531
+#: static/pdb_grapher/js/graph.js:1943 static/pdb_grapher/js/graph.js:2644
 msgid "Δ Max − Min (Å)"
 msgstr "Δ Max − Min (Å)"
 
-#: static/pdb_grapher/js/graph.js:1871 static/pdb_grapher/js/graph.js:2534
+#: static/pdb_grapher/js/graph.js:1986 static/pdb_grapher/js/graph.js:2647
 msgid "Bindungen gesamt"
 msgstr "Total bonds"
 
-#: static/pdb_grapher/js/graph.js:1879
+#: static/pdb_grapher/js/graph.js:1994 static/pdb_grapher/js/graph.js:2658
 msgid "Abw. vom Ø (Å)"
 msgstr "Dev. from avg. (Å)"
 
-#: static/pdb_grapher/js/graph.js:1944
+#: static/pdb_grapher/js/graph.js:2059
 #, javascript-format
 msgid ""
 "Histogramm: Anteil der %s Bindungen je Bindungslänge, Klassenbreite 0,01 Å"
 msgstr "Histogram: share of the %s bonds per bond length, bin width 0.01 Å"
 
-#: static/pdb_grapher/js/graph.js:1962
+#: static/pdb_grapher/js/graph.js:2077
 #, javascript-format
 msgid "%s Bindung"
 msgid_plural "%s Bindungen"
 msgstr[0] "%s bond"
 msgstr[1] "%s bonds"
 
-#: static/pdb_grapher/js/graph.js:1993 static/pdb_grapher/js/graph.js:2625
+#: static/pdb_grapher/js/graph.js:2108 static/pdb_grapher/js/graph.js:2756
 msgid "Bindungslänge (Å)"
 msgstr "Bond length (Å)"
 
-#: static/pdb_grapher/js/graph.js:1996 static/pdb_grapher/js/graph.js:2626
+#: static/pdb_grapher/js/graph.js:2111 static/pdb_grapher/js/graph.js:2757
 msgid "Anteil der Bindungen"
 msgstr "Share of bonds"
 
-#: static/pdb_grapher/js/graph.js:2083
+#: static/pdb_grapher/js/graph.js:2198
 msgid "SSBOND-Eintrag"
 msgstr "SSBOND record"
 
-#: static/pdb_grapher/js/graph.js:2083
+#: static/pdb_grapher/js/graph.js:2198
 msgid "Abstand"
 msgstr "Distance"
 
-#: static/pdb_grapher/js/graph.js:2093 static/pdb_grapher/js/graph.js:2494
+#: static/pdb_grapher/js/graph.js:2208 static/pdb_grapher/js/graph.js:2607
 msgid "Herkunft"
 msgstr "Source"
 
-#: static/pdb_grapher/js/graph.js:2105
+#: static/pdb_grapher/js/graph.js:2220
 msgid "Disulfidbrücken gesamt"
 msgstr "Total disulfide bridges"
 
-#: static/pdb_grapher/js/graph.js:2115 static/pdb_grapher/js/graph.js:2483
+#: static/pdb_grapher/js/graph.js:2230 static/pdb_grapher/js/graph.js:2596
 msgid "Existent"
 msgstr "Existent"
 
-#: static/pdb_grapher/js/graph.js:2116 static/pdb_grapher/js/graph.js:2484
+#: static/pdb_grapher/js/graph.js:2231 static/pdb_grapher/js/graph.js:2597
 msgid "Nicht-existent"
 msgstr "Non-existent"
 
-#: static/pdb_grapher/js/graph.js:2116 static/pdb_grapher/js/graph.js:2484
+#: static/pdb_grapher/js/graph.js:2231 static/pdb_grapher/js/graph.js:2597
 msgid "Kettenlücken"
 msgstr "Chain breaks"
 
-#: static/pdb_grapher/js/graph.js:2282
+#: static/pdb_grapher/js/graph.js:2382
 msgid "statistiken"
 msgstr "statistics"
 
-#: static/pdb_grapher/js/graph.js:2368
+#: static/pdb_grapher/js/graph.js:2505
 #, javascript-format
 msgid "Statistiken – %s"
 msgstr "Statistics – %s"
 
-#: static/pdb_grapher/js/graph.js:2372
+#: static/pdb_grapher/js/graph.js:2509
 #, javascript-format
 msgid "%(model)s · erstellt am %(date)s"
 msgstr "%(model)s · created on %(date)s"
 
-#: static/pdb_grapher/js/graph.js:2377
+#: static/pdb_grapher/js/graph.js:2514
 msgid "Allgemein"
 msgstr "General"
 
-#: static/pdb_grapher/js/graph.js:2379
+#: static/pdb_grapher/js/graph.js:2516
 msgid "Models"
 msgstr "Models"
 
-#: static/pdb_grapher/js/graph.js:2379 static/pdb_grapher/js/graph.js:2451
+#: static/pdb_grapher/js/graph.js:2516 static/pdb_grapher/js/graph.js:2588
 msgid "Bindungen"
 msgstr "Bonds"
 
-#: static/pdb_grapher/js/graph.js:2387
+#: static/pdb_grapher/js/graph.js:2524
 msgid "Methode"
 msgstr "Method"
 
-#: static/pdb_grapher/js/graph.js:2387
+#: static/pdb_grapher/js/graph.js:2524
 msgid "Auflösung"
 msgstr "Resolution"
 
-#: static/pdb_grapher/js/graph.js:2393 static/pdb_grapher/js/graph.js:2437
+#: static/pdb_grapher/js/graph.js:2530 static/pdb_grapher/js/graph.js:2574
 msgid "Elemente"
 msgstr "Elements"
 
-#: static/pdb_grapher/js/graph.js:2397 static/pdb_grapher/js/graph.js:2439
+#: static/pdb_grapher/js/graph.js:2534 static/pdb_grapher/js/graph.js:2576
 msgid "Atome gesamt"
 msgstr "Total atoms"
 
-#: static/pdb_grapher/js/graph.js:2403
+#: static/pdb_grapher/js/graph.js:2540
 msgid "Code"
 msgstr "Code"
 
-#: static/pdb_grapher/js/graph.js:2405 static/pdb_grapher/js/graph.js:2445
+#: static/pdb_grapher/js/graph.js:2542 static/pdb_grapher/js/graph.js:2582
 msgid "Aminosäuren gesamt"
 msgstr "Total amino acids"
 
-#: static/pdb_grapher/js/graph.js:2437
+#: static/pdb_grapher/js/graph.js:2574
 msgid "Elemente je Kette"
 msgstr "Elements per chain"
 
-#: static/pdb_grapher/js/graph.js:2437
+#: static/pdb_grapher/js/graph.js:2574
 msgid "Atome je Kette"
 msgstr "Atoms per chain"
 
-#: static/pdb_grapher/js/graph.js:2443
+#: static/pdb_grapher/js/graph.js:2580
 msgid "Zusammensetzung je Kette"
 msgstr "Composition per chain"
 
-#: static/pdb_grapher/js/graph.js:2443
+#: static/pdb_grapher/js/graph.js:2580
 msgid "Aminosäuren je Kette"
 msgstr "Amino acids per chain"
 
-#: static/pdb_grapher/js/graph.js:2453
+#: static/pdb_grapher/js/graph.js:2589 static/pdb_grapher/js/graph.js:2716
 msgid "Abweichung von Referenzwerten"
 msgstr "Deviation from reference values"
 
-#: static/pdb_grapher/js/graph.js:2476
-#, javascript-format
-msgid "Referenzwerte: %s"
-msgstr "Reference values: %s"
-
-#: static/pdb_grapher/js/graph.js:2487
+#: static/pdb_grapher/js/graph.js:2600
 msgid "Theoretisch möglich"
 msgstr "Theoretically possible"
 
-#: static/pdb_grapher/js/graph.js:2492
+#: static/pdb_grapher/js/graph.js:2605
 msgid "Disulfidbrücken"
 msgstr "Disulfide bridges"
 
-#: static/pdb_grapher/js/graph.js:2502
+#: static/pdb_grapher/js/graph.js:2615
 msgid "Kürzeste und längste Bindung"
 msgstr "Shortest and longest bond"
 
-#: static/pdb_grapher/js/graph.js:2522
+#: static/pdb_grapher/js/graph.js:2635
 msgid "Verteilung der Bindungslängen"
 msgstr "Distribution of bond lengths"
 
-#: static/pdb_grapher/js/graph.js:2529
+#: static/pdb_grapher/js/graph.js:2642
 msgid "Bindungen nach beteiligten Atomen"
 msgstr "Bonds by atoms involved"
 
-#: static/pdb_grapher/js/graph.js:2544
-msgid "Die einzelnen Bindungen je Atompaar sind im JSON-Export enthalten."
-msgstr "The individual bonds per atom pair are included in the JSON export."
+#: static/pdb_grapher/js/graph.js:2656
+msgid "Einzelne Bindungen je Atompaar"
+msgstr "Individual bonds per atom pair"
 
-#: static/pdb_grapher/js/graph.js:2550
+#: static/pdb_grapher/js/graph.js:2679
 msgid "Ramachandran-Plot"
 msgstr "Ramachandran plot"
 
-#: static/pdb_grapher/js/graph.js:2561
+#: static/pdb_grapher/js/graph.js:2690
 msgid "cis- und trans-Peptidbindungen"
 msgstr "cis and trans peptide bonds"
 
-#: static/pdb_grapher/js/graph.js:2563
+#: static/pdb_grapher/js/graph.js:2692
 msgid "davon vor Prolin"
 msgstr "before proline"
 
-#: static/pdb_grapher/js/graph.js:2579
+#: static/pdb_grapher/js/graph.js:2708
 msgid "Bindungswinkel"
 msgstr "Bond angles"
 
-#: static/pdb_grapher/js/graph.js:2594
+#: static/pdb_grapher/js/graph.js:2725
 #, javascript-format
 msgid "Seite %(page)s von %(pages)s"
 msgstr "Page %(page)s of %(pages)s"
 
-#: static/pdb_grapher/js/graph.js:2659
+#: static/pdb_grapher/js/graph.js:2790
 #, javascript-format
 msgid "Konformation %s"
 msgstr "Conformation %s"
 
-#: static/pdb_grapher/js/graph.js:2727
+#: static/pdb_grapher/js/graph.js:2858
 msgid "histogramm"
 msgstr "histogram"
 
-#: static/pdb_grapher/js/graph.js:2783
+#: static/pdb_grapher/js/graph.js:2914
 msgid "ramachandran"
 msgstr "ramachandran"
 

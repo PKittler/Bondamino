@@ -13,7 +13,8 @@ from django.urls import reverse
 
 from .models import Language, Note, PDBFile, WorkGroup
 from .utils import (
-    build_average_graph, build_bond_ensemble, build_graph, list_altlocs, parse_header, parse_pdb,
+    SIDECHAIN_BOND_REFERENCES, SIDECHAIN_BONDS, build_average_graph, build_bond_ensemble, build_graph, list_altlocs,
+    parse_header, parse_pdb,
 )
 
 PDB_CONTENT = (
@@ -562,6 +563,11 @@ class ConformationViewTests(BaseTestCase):
         self.assertEqual(self.model_data(altloc='Z').status_code, 400)
 
 
+def xyz_line(serial, name, res_name, res_seq, x, y, z=0.0):
+    return (f"ATOM  {serial:5d}  {name:<3} {res_name:>3} A{res_seq:4d}    "
+            f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           {name[0]}\n")
+
+
 def het_line(serial, name, res_name, x, y=0.0, element=None):
     return (f"HETATM{serial:5d} {name:<4} {res_name:>3} A   1    "
             f"{x:8.3f}{y:8.3f}{0:8.3f}  1.00  0.00          {element or name[0]:>2}\n")
@@ -632,24 +638,63 @@ class ReferenceValueTests(TestCase):
         return path
 
     def test_reference_classes(self):
-        # Glycin vor Prolin: N–CA und CA–C der Gly-Klasse, Peptidbindung mit Prolin-Wert
+        # Glycin vor Prolin: Backbone nach Engh & Huber 2001 (Gly-Klasse, Peptidbindung vor Pro),
+        # Seitenkette von Prolin aus der CCP4 Monomer Library
         lines = [pdb_line(i + 1, name, res, seq, x) for i, (name, res, seq, x) in enumerate((
             ('N', 'GLY', 1, 0.0), ('CA', 'GLY', 1, 1.451), ('C', 'GLY', 1, 2.967), ('O', 'GLY', 1, 4.198),
             ('N', 'PRO', 2, 4.308), ('CA', 'PRO', 2, 5.774), ('C', 'PRO', 2, 7.299), ('CB', 'PRO', 2, 9.0),
         ))]
         edges = {(e['source'], e['target']): e['ref'] for e in build_graph(parse_pdb(self.write_pdb(lines)))['edges']}
-        self.assertEqual(edges[('A_1_N', 'A_1_CA')], [1.451, 0.016, 'N:CA:GLY'])
-        self.assertEqual(edges[('A_1_CA', 'A_1_C')], [1.516, 0.018, 'CA:C:GLY'])
-        self.assertEqual(edges[('A_1_C', 'A_1_O')], [1.231, 0.020, 'C:O:all'])
-        self.assertEqual(edges[('A_1_C', 'A_2_N')], [1.341, 0.016, 'C:N:PRO'])
-        self.assertEqual(edges[('A_2_N', 'A_2_CA')], [1.466, 0.015, 'N:CA:PRO'])
-        self.assertEqual(edges[('A_2_CA', 'A_2_CB')], [1.530, 0.020, 'CA:CB:other'])
+        self.assertEqual(edges[('A_1_N', 'A_1_CA')], [1.456, 0.015, 'backbone:N-CA:GLY'])
+        self.assertEqual(edges[('A_1_CA', 'A_1_C')], [1.514, 0.016, 'backbone:CA-C:GLY'])
+        self.assertEqual(edges[('A_1_C', 'A_1_O')], [1.232, 0.016, 'backbone:C-O:GLY'])
+        self.assertEqual(edges[('A_1_C', 'A_2_N')], [1.338, 0.019, 'backbone:C-N:X-PRO'])
+        self.assertEqual(edges[('A_2_N', 'A_2_CA')], [1.468, 0.017, 'backbone:N-CA:PRO'])
+        self.assertEqual(edges[('A_2_CA', 'A_2_CB')], [1.526, 0.016, 'PRO:CA-CB'])
 
-    def test_modified_residue_uses_parent_and_sidechain_has_no_reference(self):
+    def test_modified_residue_uses_parent_for_backbone_and_own_sidechain(self):
         edges = {(e['source'], e['target']): e['ref'] for e in build_graph(parse_pdb(self.write_pdb(MSE_LINES)))['edges']}
-        self.assertEqual(edges[('A_1_N', 'A_1_CA')][2], 'N:CA:other')
-        self.assertEqual(edges[('A_1_CA', 'A_1_CB')][2], 'CA:CB:other')
-        self.assertIsNone(edges[('A_1_CG', 'A_1_SE')])
+        self.assertEqual(edges[('A_1_N', 'A_1_CA')][2], 'backbone:N-CA:other')
+        self.assertEqual(edges[('A_1_CA', 'A_1_CB')], [1.532, 0.01, 'MSE:CA-CB'])
+        self.assertEqual(edges[('A_1_CG', 'A_1_SE')], [1.963, 0.02, 'MSE:CG-SE'])
+
+    def test_every_standard_sidechain_bond_has_a_reference(self):
+        for res_name, bonds in SIDECHAIN_BONDS.items():
+            for a, b in bonds:
+                with self.subTest(res_name=res_name, bond=(a, b)):
+                    self.assertIn((res_name, frozenset((a, b))), SIDECHAIN_BOND_REFERENCES)
+
+    def gly_pro(self, cis):
+        """Gly 1 und Pro 2 in der Ebene z = 0; ω (CA–C–N–CA) ist 0° (cis) oder 180° (trans)."""
+        atoms = (
+            ('N', 'GLY', 1, -1.2, 1.9), ('CA', 'GLY', 1, 0.0, 1.0), ('C', 'GLY', 1, 0.0, 0.0),
+            ('O', 'GLY', 1, -1.0, -0.7), ('N', 'PRO', 2, 1.33, 0.0), ('CA', 'PRO', 2, 1.9, 1.3 if cis else -1.3),
+            ('C', 'PRO', 2, 3.4, 1.3 if cis else -1.3), ('CD', 'PRO', 2, 2.0, -1.2 if cis else 1.2),
+        )
+        lines = [xyz_line(i + 1, name, res, seq, x, y) for i, (name, res, seq, x, y) in enumerate(atoms)]
+        return {n['id']: n.get('angle_refs', {}) for n in build_graph(parse_pdb(self.write_pdb(lines)))['nodes']}
+
+    def test_angle_references(self):
+        refs = self.gly_pro(cis=False)
+        self.assertEqual(refs['A_1_CA']['C|N'], [113.1, 2.5, 'backbone:N-CA-C:GLY'])
+        self.assertEqual(refs['A_1_C']['CA|O'], [120.6, 1.8, 'backbone:CA-C-O:GLY'])
+        # Über die Peptidbindung: Gly davor hat bei CA–C–N Vorrang, Pro danach bei O–C–N
+        self.assertEqual(refs['A_1_C']['CA|N'], [116.2, 2.0, 'backbone:CA-C-N:GLY-X'])
+        self.assertEqual(refs['A_1_C']['N|O'], [121.1, 1.9, 'backbone:O-C-N:X-PRO'])
+        self.assertEqual(refs['A_2_N']['C|CA'], [119.3, 1.5, 'backbone:C-N-CA:X-PRO'])
+        # Prolinring aus der CCP4 Monomer Library; C–N–CD hat keine Referenz
+        self.assertEqual(refs['A_2_N']['CA|CD'], [108.0, 1.5, 'PRO:CA-N-CD'])
+        self.assertNotIn('C|CD', refs['A_2_N'])
+
+    def test_cis_proline_angle_reference(self):
+        self.assertEqual(self.gly_pro(cis=True)['A_2_N']['C|CA'], [127.0, 2.4, 'backbone:C-N-CA:cis-X-PRO'])
+
+    def test_no_angle_references_without_peptide_bond_or_for_ligands(self):
+        lines = residue_lines(1, 0.0) + residue_lines(2, 20.0, serial=4) + [
+            het_line(7, 'C1', 'LIG', 40.0), het_line(8, 'C2', 'LIG', 41.5), het_line(9, 'C3', 'LIG', 43.0)]
+        refs = {n['id']: n.get('angle_refs', {}) for n in build_graph(parse_pdb(self.write_pdb(lines)))['nodes']}
+        self.assertEqual(set(refs['A_1_C']), set())
+        self.assertEqual(set(refs['A_2_CA']), {'C|N'})
 
     def test_parse_header(self):
         path = self.write_pdb(HEADER_LINES + residue_lines(1, 0.0))
@@ -670,7 +715,9 @@ class StructureInfoViewTests(BaseTestCase):
         self.assertContains(response, '<dd>Röntgenkristallographie</dd>', html=True)
         self.assertContains(response, '<dd>1,80 Å</dd>', html=True)
         self.assertContains(response, '<dd>0,234</dd>', html=True)
-        self.assertContains(response, 'Engh &amp; Huber (1991)')
+        self.assertContains(response, 'Engh &amp; Huber (2001)')
+        self.assertContains(response, 'CCP4 Monomer Library')
+        self.assertContains(response, 'id="angle-ref-groups"')
 
 
 def cys_lines(serial, res_seq, x, sg_x):

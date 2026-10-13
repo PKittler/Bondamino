@@ -16,7 +16,7 @@ from django.views.decorators.http import require_POST
 from .forms import AvailabilityForm, NoteForm, PDBUploadForm
 from .models import Language, Note, PDBFile, WorkGroup
 from .utils import (
-    REFERENCE_SOURCE, build_average_graph, build_bond_ensemble, build_graph, list_altlocs, list_models,
+    REFERENCE_SOURCES, build_average_graph, build_bond_ensemble, build_graph, list_altlocs, list_models,
     parse_header, parse_pdb,
 )
 
@@ -118,7 +118,7 @@ def detail(request, pk):
         models = list_models(file_path)
         altlocs = list_altlocs(file_path)
         structure_info = parse_header(file_path)
-        structure_info.update(method_label=_method_label(structure_info['method']), reference_source=REFERENCE_SOURCE)
+        structure_info.update(method_label=_method_label(structure_info['method']), reference_sources=REFERENCE_SOURCES)
         selected_model = models[0] if models else None
         graph_data = build_graph(parse_pdb(file_path, model_id=selected_model))
         bond_ensemble = build_bond_ensemble(file_path, models)
