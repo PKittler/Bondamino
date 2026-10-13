@@ -1,0 +1,23 @@
+{% load i18n %}
+<fieldset class="note-visibility small">
+    <legend class="visually-hidden">{% translate 'Sichtbar für' %}</legend>
+    <div class="d-flex flex-wrap align-items-center column-gap-3 row-gap-1">
+        <span class="text-body-secondary">{% translate 'Sichtbar für' %}</span>
+        {% for radio in form.visibility %}
+            <div class="form-check form-check-inline m-0">
+                {{ radio.tag }}
+                <label class="form-check-label" for="{{ radio.id_for_label }}">{{ radio.choice_label }}</label>
+            </div>
+        {% endfor %}
+    </div>
+    <div class="note-groups mt-1" data-note-groups>
+        {% for checkbox in form.groups %}
+            <div class="form-check form-check-inline">
+                {{ checkbox.tag }}
+                <label class="form-check-label" for="{{ checkbox.id_for_label }}">{% blocktranslate with group=checkbox.choice_label %}Arbeitsgruppe {{ group }}{% endblocktranslate %}</label>
+            </div>
+        {% empty %}
+            <p class="text-body-secondary mb-0">{% translate 'Du bist keiner Arbeitsgruppe zugeordnet.' %}</p>
+        {% endfor %}
+    </div>
+</fieldset>

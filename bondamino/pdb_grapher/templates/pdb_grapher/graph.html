@@ -1,0 +1,476 @@
+{% extends 'pdb_grapher/base.html' %}
+{% load i18n versioned_static %}
+
+{% block title %}Bondamino – {{ filename }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column gap-3">
+    <div class="main-pane d-flex flex-column">
+        <div class="tabs-bar d-flex flex-wrap align-items-end column-gap-3">
+            <ul class="nav nav-tabs border-0" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="tab-graph" data-bs-toggle="tab" data-bs-target="#pane-graph" data-tab="graph" type="button" role="tab" aria-controls="pane-graph" aria-selected="true">{% translate 'Graph' %}</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-data" data-bs-toggle="tab" data-bs-target="#pane-data" data-tab="data" type="button" role="tab" aria-controls="pane-data" aria-selected="false">{% translate 'Daten' %}</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-stats" data-bs-toggle="tab" data-bs-target="#pane-stats" data-tab="stats" type="button" role="tab" aria-controls="pane-stats" aria-selected="false">{% translate 'Statistiken' %}</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-notes" data-bs-toggle="tab" data-bs-target="#pane-notes" data-tab="notes" type="button" role="tab" aria-controls="pane-notes" aria-selected="false">{% translate 'Anmerkungen' %}</button>
+                </li>
+            </ul>
+            <div class="file-name d-flex align-items-center gap-2 ms-auto px-1 pb-1 small">
+                <span class="text-body-secondary">{% translate 'Datei' %}</span>
+                <span class="font-monospace fw-medium text-break">{{ filename }}</span>
+                <a href="{% url 'pdb_grapher:download' pdb.pk %}" class="btn btn-outline-secondary btn-sm toolbar-icon-btn flex-shrink-0" title="{% translate 'PDB-Datei herunterladen' %}" aria-label="{% translate 'PDB-Datei herunterladen' %}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                        <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                    </svg>
+                </a>
+                <div id="structure-selects" class="d-flex flex-wrap gap-2" data-model-url="{% url 'pdb_grapher:model_data' pdb.pk %}">
+                {% if models|length > 1 %}
+                <div id="model-select-wrap">
+                    <select id="model-select" class="form-select form-select-sm" aria-label="{% translate 'Model' %}">
+                        {% for m in models %}
+                            <option value="{{ m }}" {% if m == selected_model %}selected{% endif %}>{% blocktranslate %}Model {{ m }}{% endblocktranslate %}</option>
+                        {% endfor %}
+                        <option value="{{ average_model }}">{% translate 'Durchschnitt' %}</option>
+                    </select>
+                </div>
+                {% else %}
+                {# Nur ein Model: Auswahl trotzdem zeigen (deaktiviert), damit die Kopfzeile immer gleich aussieht #}
+                <div title="{% translate 'Die Datei enthält nur ein Model.' %}">
+                    <select id="model-select" class="form-select form-select-sm" aria-label="{% translate 'Model' %}" disabled>
+                        <option>{% blocktranslate with m=models.0|default:1 %}Model {{ m }}{% endblocktranslate %}</option>
+                    </select>
+                </div>
+                {% endif %}
+                {% if altlocs %}
+                <div title="{% translate 'Alternative Konformationen (altLoc). Automatisch und bei Residuen ohne die gewählte Konformation wird je Residuum die mit der höchsten Belegung verwendet.' %}">
+                    <select id="altloc-select" class="form-select form-select-sm" aria-label="{% translate 'Konformation' %}">
+                        <option value="">{% translate 'Konformation: automatisch' %}</option>
+                        {% for altloc in altlocs %}
+                            <option value="{{ altloc }}">{% blocktranslate %}Konformation {{ altloc }}{% endblocktranslate %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% else %}
+                {# Keine Alternativen: Auswahl trotzdem zeigen (deaktiviert), wie bei nur einem Model #}
+                <div title="{% translate 'Die Datei enthält keine alternativen Konformationen.' %}">
+                    <select id="altloc-select" class="form-select form-select-sm" aria-label="{% translate 'Konformation' %}" disabled>
+                        <option>{% translate 'Eine Konformation' %}</option>
+                    </select>
+                </div>
+                {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Sequenzleiste: nur in den Tabs Graph und Daten sichtbar -->
+        <div class="sequence-card card" id="sequence-card">
+            <div class="card-body py-2 px-3">
+                <div id="sequence-scroll" class="sequence-scroll">
+                    <svg id="sequence-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-content">
+            <div class="tab-pane show active" id="pane-graph" role="tabpanel" aria-labelledby="tab-graph" tabindex="0">
+                <div class="pane-box graph-pane-box card">
+                    <div class="graph-toolbar btn-toolbar align-items-center gap-2" role="toolbar" aria-label="{% translate 'Darstellung' %}">
+                        <div class="btn-group btn-group-sm" role="group" aria-label="{% translate 'Bindungsfarbe' %}">
+                            <button class="btn btn-outline-secondary style-option" type="button" data-style="gradient" onclick="setBondStyle('gradient')" title="{% translate 'Bindungsfarbe: Rot → Grün nach Bindungslänge' %}">
+                                <span class="style-preview" aria-hidden="true">
+                                    <span class="style-preview-line" style="background:hsl(0,80%,42%)"></span>
+                                    <span class="style-preview-line" style="background:hsl(40,80%,42%)"></span>
+                                    <span class="style-preview-line" style="background:hsl(80,80%,42%)"></span>
+                                    <span class="style-preview-line" style="background:hsl(120,80%,42%)"></span>
+                                </span>
+                                <span>{% translate 'Längenbasiert' %}</span>
+                            </button>
+                            <button class="btn btn-outline-secondary style-option" type="button" data-style="mono" onclick="setBondStyle('mono')" title="{% translate 'Bindungsfarbe: alle Bindungen einheitlich' %}">
+                                <span class="style-preview style-preview-mono" aria-hidden="true">
+                                    <span class="style-preview-line mono-line"></span>
+                                    <span class="style-preview-line mono-line"></span>
+                                    <span class="style-preview-line mono-line"></span>
+                                </span>
+                                <span>{% translate 'Einheitlich' %}</span>
+                            </button>
+                            <button class="btn btn-outline-secondary style-option" type="button" data-style="reference" onclick="setBondStyle('reference')" title="{% translate 'Bindungsfarbe: Abweichung vom Referenzwert (Engh & Huber 1991) in Standardabweichungen' %}">
+                                <span class="style-preview" aria-hidden="true">
+                                    <span class="style-preview-line" style="background:var(--z-ok)"></span>
+                                    <span class="style-preview-line" style="background:var(--z-warn)"></span>
+                                    <span class="style-preview-line" style="background:var(--z-outlier)"></span>
+                                </span>
+                                <span>{% translate 'Referenz' %}</span>
+                            </button>
+                        </div>
+
+                        <span class="vr"></span>
+                        <div class="btn-group btn-group-sm" role="group" aria-label="{% translate 'Layout' %}">
+                            <button class="btn btn-outline-secondary style-option" type="button" data-layout="schematic" onclick="setLayout('schematic')" title="{% translate 'Layout: festes Raster, unabhängig von Bindungslängen' %}">
+                                <span class="style-preview layout-preview" aria-hidden="true">
+                                    <svg width="32" height="10" viewBox="0 0 60 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <circle cx="5"  cy="9" r="3" fill="currentColor"/>
+                                        <line x1="8"  y1="9" x2="17" y2="9" stroke="currentColor" stroke-width="1.5"/>
+                                        <circle cx="20" cy="9" r="3" fill="currentColor"/>
+                                        <line x1="23" y1="9" x2="32" y2="9" stroke="currentColor" stroke-width="1.5"/>
+                                        <circle cx="35" cy="9" r="3" fill="currentColor"/>
+                                        <line x1="38" y1="9" x2="47" y2="9" stroke="currentColor" stroke-width="1.5"/>
+                                        <circle cx="50" cy="9" r="3" fill="currentColor"/>
+                                        <line x1="53" y1="9" x2="59" y2="9" stroke="currentColor" stroke-width="1.5"/>
+                                    </svg>
+                                </span>
+                                <span>{% translate 'Schematisch' %}</span>
+                            </button>
+                            <button class="btn btn-outline-secondary style-option" type="button" data-layout="proportional" onclick="setLayout('proportional')" title="{% translate 'Layout: Kantenlängen proportional zu Bindungsabständen in Å' %}">
+                                <span class="style-preview layout-preview" aria-hidden="true">
+                                    <svg width="32" height="10" viewBox="0 0 60 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <circle cx="4"  cy="9" r="3" fill="currentColor"/>
+                                        <line x1="7"  y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.5"/>
+                                        <circle cx="14" cy="9" r="3" fill="currentColor"/>
+                                        <line x1="17" y1="9" x2="34" y2="9" stroke="currentColor" stroke-width="1.5"/>
+                                        <circle cx="37" cy="9" r="3" fill="currentColor"/>
+                                        <line x1="40" y1="9" x2="46" y2="9" stroke="currentColor" stroke-width="1.5"/>
+                                        <circle cx="49" cy="9" r="3" fill="currentColor"/>
+                                        <line x1="52" y1="9" x2="59" y2="9" stroke="currentColor" stroke-width="1.5"/>
+                                    </svg>
+                                </span>
+                                <span>{% translate 'Proportional' %}</span>
+                            </button>
+                        </div>
+
+                        <span class="vr"></span>
+                        <button class="btn btn-outline-secondary btn-sm toolbar-icon-btn" type="button" onclick="resetZoom()" title="{% translate 'Zoom zurücksetzen (Strg + Mausrad zoomt, Ziehen verschiebt die Ansicht)' %}" aria-label="{% translate 'Zoom zurücksetzen' %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2z"/>
+                                <path d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="graph-main">
+                        <div class="graph-scroll-container">
+                            <svg id="protein-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+                        </div>
+                        <aside class="pane-aside graph-legend d-flex flex-column gap-2" aria-labelledby="legend-title">
+                            <h3 id="legend-title" class="sidebar-title text-uppercase text-body-secondary small fw-medium mb-0">{% translate 'Legende' %}</h3>
+                            <div class="d-flex flex-column gap-1 small text-body-secondary">
+                                <span>{% translate '— Backbone' %}</span>
+                                <span>{% translate '- - Seitenkette' %}</span>
+                                <span id="legend-disulfide" hidden>{% translate '··· Disulfidbrücke' %}</span>
+                                <span class="d-flex flex-wrap column-gap-3 row-gap-1 mt-1" id="legend-elements"></span>
+                            </div>
+                            <div class="d-flex flex-column gap-1 small text-body-secondary mt-2" id="legend-reference" hidden>
+                                <span class="fw-medium">{% translate 'Abweichung |Z|' %}</span>
+                                <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-ok)"></span>≤ 2</span>
+                                <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-warn)"></span>2–4</span>
+                                <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-outlier)"></span>{% translate '> 4 (Ausreißer)' %}</span>
+                                <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-none)"></span>{% translate 'ohne Referenz' %}</span>
+                            </div>
+                        </aside>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane" id="pane-data" role="tabpanel" aria-labelledby="tab-data" tabindex="0">
+                <div id="data-table-scroll" class="data-table-scroll pane-box card">
+                    <table class="table table-sm table-hover mb-0 data-table">
+                        <thead><tr></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="tab-pane" id="pane-stats" role="tabpanel" aria-labelledby="tab-stats" tabindex="0">
+                <div class="pane-box stats-pane card">
+                    <div class="card-body stats-body d-flex flex-column gap-4">
+                        <section aria-labelledby="stats-general-title">
+                            <h2 id="stats-general-title" class="stats-title text-uppercase text-body-secondary small fw-medium mb-3">{% translate 'Allgemein' %}</h2>
+                            <div class="stats-tables">
+                                <div>
+                                    <h3 class="small fw-medium mb-2">{% translate 'Elemente' %}</h3>
+                                    <table class="table table-sm stats-share mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">{% translate 'Element' %}</th>
+                                                <th scope="col" class="text-end">{% translate 'Anzahl' %}</th>
+                                                <th scope="col" class="text-end">{% translate 'Anteil' %}</th>
+                                                <th scope="col"><span class="visually-hidden">{% translate 'Verteilung' %}</span></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="stat-elements"></tbody>
+                                        <tfoot>
+                                            <tr class="share-total">
+                                                <th scope="row">{% translate 'Atome gesamt' %}</th>
+                                                <td class="text-end" id="stat-atoms"></td>
+                                                <td class="text-end share-total-pct"></td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                    <dl class="stats-facts mt-4">
+                                        <div>
+                                            <dt>{% translate 'Models' %}</dt>
+                                            <dd id="stat-models">{{ models|length|default:1 }}</dd>
+                                        </div>
+                                        {% if structure_info.method_label %}
+                                        <div>
+                                            <dt>{% translate 'Methode' %}</dt>
+                                            <dd>{{ structure_info.method_label }}</dd>
+                                        </div>
+                                        {% endif %}
+                                        {% if structure_info.resolution %}
+                                        <div>
+                                            <dt>{% translate 'Auflösung' %}</dt>
+                                            <dd>{{ structure_info.resolution|floatformat:2 }} Å</dd>
+                                        </div>
+                                        {% endif %}
+                                        {% if structure_info.r_work %}
+                                        <div>
+                                            <dt title="{% translate 'R-Wert des Arbeitsdatensatzes' %}">R<sub>work</sub></dt>
+                                            <dd>{{ structure_info.r_work|floatformat:3 }}</dd>
+                                        </div>
+                                        {% endif %}
+                                        {% if structure_info.r_free %}
+                                        <div>
+                                            <dt title="{% translate 'R-Wert des Testdatensatzes (nicht für die Verfeinerung verwendet)' %}">R<sub>free</sub></dt>
+                                            <dd>{{ structure_info.r_free|floatformat:3 }}</dd>
+                                        </div>
+                                        {% endif %}
+                                    </dl>
+                                </div>
+                                <div>
+                                    <h3 class="small fw-medium mb-2">{% translate 'Aminosäuren' %}</h3>
+                                    <table class="table table-sm stats-share mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">{% translate 'Aminosäure' %}</th>
+                                                <th scope="col" class="text-end">{% translate 'Anzahl' %}</th>
+                                                <th scope="col" class="text-end">{% translate 'Anteil' %}</th>
+                                                <th scope="col"><span class="visually-hidden">{% translate 'Verteilung' %}</span></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="stat-amino-acid-counts"></tbody>
+                                        <tfoot>
+                                            <tr class="share-total">
+                                                <th scope="row">{% translate 'Aminosäuren gesamt' %}</th>
+                                                <td class="text-end" id="stat-amino-acids"></td>
+                                                <td class="text-end share-total-pct"></td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section aria-labelledby="stats-elements-title">
+                            <h2 id="stats-elements-title" class="stats-title text-uppercase text-body-secondary small fw-medium mb-3">{% translate 'Elemente' %}</h2>
+                            <div class="stats-tables">
+                                <div>
+                                    <h3 class="small fw-medium mb-2">{% translate 'Elemente je Kette' %}</h3>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm stats-share stats-matrix mb-0" id="stat-elements-by-chain"></table>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h3 class="small fw-medium mb-2">{% translate 'Atome je Kette' %}</h3>
+                                    <table class="table table-sm stats-share mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">{% translate 'Kette' %}</th>
+                                                <th scope="col" class="text-end">{% translate 'Anzahl' %}</th>
+                                                <th scope="col" class="text-end">{% translate 'Anteil' %}</th>
+                                                <th scope="col"><span class="visually-hidden">{% translate 'Verteilung' %}</span></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="stat-chain-atoms"></tbody>
+                                        <tfoot>
+                                            <tr class="share-total">
+                                                <th scope="row">{% translate 'Atome gesamt' %}</th>
+                                                <td class="text-end" id="stat-chain-atoms-total"></td>
+                                                <td class="text-end share-total-pct"></td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section aria-labelledby="stats-aa-title">
+                            <h2 id="stats-aa-title" class="stats-title text-uppercase text-body-secondary small fw-medium mb-3">{% translate 'Aminosäuren' %}</h2>
+                            <div class="stats-tables">
+                                <div>
+                                    <h3 class="small fw-medium mb-2">{% translate 'Zusammensetzung je Kette' %}</h3>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm stats-share stats-matrix mb-0" id="stat-aa-by-chain"></table>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h3 class="small fw-medium mb-2">{% translate 'Aminosäuren je Kette' %}</h3>
+                                    <table class="table table-sm stats-share mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">{% translate 'Kette' %}</th>
+                                                <th scope="col" class="text-end">{% translate 'Anzahl' %}</th>
+                                                <th scope="col" class="text-end">{% translate 'Anteil' %}</th>
+                                                <th scope="col"><span class="visually-hidden">{% translate 'Verteilung' %}</span></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="stat-chain-aa"></tbody>
+                                        <tfoot>
+                                            <tr class="share-total">
+                                                <th scope="row">{% translate 'Aminosäuren gesamt' %}</th>
+                                                <td class="text-end" id="stat-chain-aa-total"></td>
+                                                <td class="text-end share-total-pct"></td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section aria-labelledby="stats-bonds-title">
+                            <h2 id="stats-bonds-title" class="stats-title text-uppercase text-body-secondary small fw-medium mb-3">{% translate 'Bindungen' %}</h2>
+                            <h3 class="small fw-medium mb-2">{% translate 'Abweichung von Referenzwerten' %}</h3>
+                            <dl class="stats-facts mb-3" id="stat-ref-facts"></dl>
+                            <div class="table-responsive mb-2">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="stat-ref-groups"></table>
+                            </div>
+                            <p class="small text-body-secondary mb-3">
+                                {% blocktranslate with source=structure_info.reference_source %}Referenzwerte nach {{ source }} für Rückgrat und CA–CB; Seitenketten-Bindungen jenseits von CB werden nicht bewertet. Z = (Länge − Referenz) / Standardabweichung, Ausreißer: |Z| &gt; 4.{% endblocktranslate %}
+                            </p>
+                            <h3 class="small fw-medium mb-2" id="stat-ref-outliers-title">{% translate 'Ausreißer' %}</h3>
+                            <div class="table-responsive mb-4">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="stat-ref-outliers"></table>
+                            </div>
+                            <h3 class="small fw-medium mb-2">{% translate 'Peptidbindungen' %}</h3>
+                            <div class="stats-narrow mb-4">
+                                <table class="table table-sm stats-share mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">{% translate 'Peptidbindung' %}</th>
+                                            <th scope="col" class="text-end">{% translate 'Anzahl' %}</th>
+                                            <th scope="col" class="text-end">{% translate 'Anteil' %}</th>
+                                            <th scope="col"><span class="visually-hidden">{% translate 'Verteilung' %}</span></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="stat-peptide-bonds"></tbody>
+                                    <tfoot>
+                                        <tr class="share-total">
+                                            <th scope="row" title="{% translate 'Aufeinanderfolgende Aminosäuren derselben Kette in der Datei' %}">{% translate 'Theoretisch möglich' %}</th>
+                                            <td class="text-end" id="stat-peptide-possible"></td>
+                                            <td class="text-end share-total-pct"></td>
+                                            <td></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                            <h3 class="small fw-medium mb-2">{% translate 'Disulfidbrücken' %}</h3>
+                            <div class="stats-narrow table-responsive mb-4">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="stat-disulfides"></table>
+                            </div>
+                            <h3 class="small fw-medium mb-2">{% translate 'Kürzeste und längste Bindung' %}</h3>
+                            <div class="table-responsive mb-4">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="stat-bond-extremes"></table>
+                            </div>
+                            <h3 class="small fw-medium mb-2">{% translate 'Verteilung der Bindungslängen' %}</h3>
+                            <div class="bond-histogram mb-4" id="stat-bond-histogram"></div>
+                            <h3 class="small fw-medium mb-2">{% translate 'Bindungen nach beteiligten Atomen' %}</h3>
+                            <div class="table-responsive">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="stat-bond-groups"></table>
+                            </div>
+                        </section>
+                    </div>
+                    <aside class="pane-aside stats-aside d-flex flex-column gap-2" id="stats-export" aria-labelledby="export-title"
+                           data-filename="{{ filename }}"
+                           data-jspdf-src="{% static_v 'pdb_grapher/vendor/jspdf/jspdf.umd.min.js' %}"
+                           data-autotable-src="{% static_v 'pdb_grapher/vendor/jspdf/jspdf.plugin.autotable.min.js' %}">
+                        <h3 id="export-title" class="sidebar-title text-uppercase text-body-secondary small fw-medium mb-0">{% translate 'Download' %}</h3>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" id="export-pdf" type="button" title="{% translate 'Statistiken als PDF herunterladen' %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>PDF</span>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" id="export-json" type="button" title="{% translate 'Statistiken als JSON herunterladen' %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>JSON</span>
+                        </button>
+                        <h3 class="sidebar-title text-uppercase text-body-secondary small fw-medium mt-3 mb-0">{% translate 'Histogramm' %}</h3>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-histogram-format="png" title="{% blocktranslate with format='PNG' %}Histogramm als {{ format }} herunterladen{% endblocktranslate %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>PNG</span>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-histogram-format="jpeg" title="{% blocktranslate with format='JPEG' %}Histogramm als {{ format }} herunterladen{% endblocktranslate %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>JPEG</span>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-histogram-format="svg" title="{% blocktranslate with format='SVG' %}Histogramm als {{ format }} herunterladen{% endblocktranslate %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>SVG</span>
+                        </button>
+                    </aside>
+                </div>
+            </div>
+            <div class="tab-pane" id="pane-notes" role="tabpanel" aria-labelledby="tab-notes" tabindex="0">
+                <div class="pane-box notes-pane card" id="notes">
+                    <!-- Eingabefeld bleibt oben stehen, nur die Liste darunter scrollt. -->
+                    <form method="post" action="{% url 'pdb_grapher:note_create' pdb.pk %}" class="note-compose" data-note-action="create">
+                        {% csrf_token %}
+                        {% with form=note_form %}
+                            <label class="visually-hidden" for="{{ form.text.id_for_label }}">{% translate 'Neue Anmerkung' %}</label>
+                            {{ form.text }}
+                            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mt-2">
+                                {% include 'pdb_grapher/_note_visibility_fields.html' %}
+                                <button type="submit" class="btn btn-primary btn-sm">{% translate 'Anmerkung speichern' %}</button>
+                            </div>
+                            <p class="note-errors text-danger small mt-1 mb-0"></p>
+                        {% endwith %}
+                    </form>
+                    <div class="notes-scroll">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                            <h2 class="stats-title text-uppercase text-body-secondary small fw-medium mb-0">{% translate 'Anmerkungen' %}</h2>
+                            <select id="notes-filter" class="form-select form-select-sm notes-filter" aria-label="{% translate 'Anmerkungen filtern' %}">
+                                <option value="all">{% translate 'Alle sichtbaren' %}</option>
+                                <option value="personal">{% translate 'Nur für mich' %}</option>
+                                {% for group in user_groups %}
+                                    <option value="{{ group.pk }}">{{ group.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div id="note-list" class="d-flex flex-column gap-2">
+                            {% include 'pdb_grapher/_note_list.html' %}
+                        </div>
+                        <p id="notes-empty" class="text-body-secondary small mb-0" hidden></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script id="graph-data" type="application/json">{{ graph_data|safe }}</script>
+{{ bond_ensemble|json_script:"bond-ensemble" }}
+{{ structure_info|json_script:"structure-info" }}
+<script src="{% static_v 'pdb_grapher/vendor/d3/d3.min.js' %}"></script>
+<script src="{% static_v 'pdb_grapher/js/graph.js' %}"></script>
+<script src="{% static_v 'pdb_grapher/js/notes.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,65 @@
+{% load i18n %}
+{% for note in notes %}
+    <article class="note" data-groups="{% for group in note.groups.all %}{{ group.pk }}{% if not forloop.last %} {% endif %}{% endfor %}">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
+            <div class="small text-body-secondary">
+                <span class="fw-medium text-body">{% if note.author %}{{ note.author.get_full_name|default:note.author.username }}{% else %}–{% endif %}</span>
+                · {{ note.created_at|date:'SHORT_DATETIME_FORMAT' }}
+                {% if note.edited_at %}<span title="{{ note.edited_at|date:'SHORT_DATETIME_FORMAT' }}">· {% translate 'bearbeitet' %}</span>{% endif %}
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-1">
+                {% for group in note.groups.all %}
+                    <span class="badge text-bg-primary d-inline-flex align-items-center gap-1">
+                        {{ group.name }}
+                        {% if group.pk in led_group_ids %}
+                            <form method="post" action="{% url 'pdb_grapher:note_remove_from_group' note.pdb_id note.pk group.pk %}" class="m-0 d-inline"
+                                  data-note-action="remove" data-confirm="{% blocktranslate with group=group.name %}Anmerkung aus der Gruppe „{{ group }}“ entfernen?{% endblocktranslate %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn-close btn-close-white badge-remove" title="{% translate 'Aus Gruppe entfernen' %}" aria-label="{% blocktranslate with group=group.name %}Aus Gruppe {{ group }} entfernen{% endblocktranslate %}"></button>
+                            </form>
+                        {% endif %}
+                    </span>
+                {% empty %}
+                    <span class="badge text-bg-secondary">{% translate 'persönlich' %}</span>
+                {% endfor %}
+                {% if note.user_can_edit %}
+                    <button type="button" class="btn btn-outline-secondary btn-sm toolbar-icon-btn ms-1" data-note-edit title="{% translate 'Anmerkung bearbeiten' %}" aria-label="{% translate 'Anmerkung bearbeiten' %}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325"/>
+                        </svg>
+                    </button>
+                {% endif %}
+                {% if note.user_can_edit %}
+                    <form method="post" action="{% url 'pdb_grapher:note_delete' note.pdb_id note.pk %}" class="m-0"
+                          data-note-action="delete" data-confirm="{% translate 'Anmerkung endgültig löschen?' %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-outline-danger btn-sm toolbar-icon-btn" title="{% translate 'Anmerkung löschen' %}" aria-label="{% translate 'Anmerkung löschen' %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/>
+                                <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/>
+                            </svg>
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+        <p class="note-text mb-0">{{ note.text }}</p>
+        {% if note.user_can_edit %}
+            <form method="post" action="{% url 'pdb_grapher:note_edit' note.pdb_id note.pk %}" class="mt-2" data-note-action="edit" hidden>
+                {% csrf_token %}
+                {% with form=note.edit_form %}
+                    <label class="visually-hidden" for="{{ form.text.id_for_label }}">{% translate 'Anmerkung bearbeiten' %}</label>
+                    {{ form.text }}
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mt-2">
+                        {% include 'pdb_grapher/_note_visibility_fields.html' %}
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-note-cancel>{% translate 'Abbrechen' %}</button>
+                            <button type="submit" class="btn btn-primary btn-sm">{% translate 'Speichern' %}</button>
+                        </div>
+                    </div>
+                    <p class="note-errors text-danger small mt-1 mb-0"></p>
+                {% endwith %}
+            </form>
+        {% endif %}
+    </article>
+{% endfor %}

@@ -1,0 +1,38 @@
+{% extends 'pdb_grapher/base.html' %}
+{% load i18n %}
+
+{% block title %}Bondamino – {% translate 'Anmelden' %}{% endblock %}
+
+{% block content %}
+<div class="mx-auto py-5" style="max-width: 400px;">
+    <div class="text-center mb-4">
+        <h1 class="display-6 fw-light text-primary mb-2">Bondamino</h1>
+        <p class="text-body-secondary mb-0">{% translate 'Bitte melde dich mit deinem Benutzerkonto an.' %}</p>
+    </div>
+    <div class="card shadow-sm">
+        <div class="card-body p-4">
+            <form method="post">
+                {% csrf_token %}
+                {% if form.non_field_errors %}
+                    <div class="alert alert-danger small py-2">
+                        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+                    </div>
+                {% endif %}
+                <div class="mb-3">
+                    <label class="form-label" for="{{ form.username.id_for_label }}">{% translate 'Benutzername' %}</label>
+                    <input type="text" class="form-control" name="{{ form.username.html_name }}" id="{{ form.username.id_for_label }}"
+                           value="{{ form.username.value|default:'' }}" autocomplete="username" autofocus required>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label" for="{{ form.password.id_for_label }}">{% translate 'Passwort' %}</label>
+                    <input type="password" class="form-control" name="{{ form.password.html_name }}" id="{{ form.password.id_for_label }}"
+                           autocomplete="current-password" required>
+                </div>
+                <input type="hidden" name="next" value="{{ next }}">
+                <button type="submit" class="btn btn-primary w-100">{% translate 'Anmelden' %}</button>
+            </form>
+        </div>
+    </div>
+    <p class="text-body-secondary small text-center mt-3">{% translate 'Benutzerkonten werden vom Administrator angelegt.' %}</p>
+</div>
+{% endblock %}
