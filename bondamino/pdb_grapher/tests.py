@@ -12,7 +12,9 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .models import Language, Note, PDBFile, WorkGroup
-from .utils import build_average_graph, build_bond_ensemble, build_graph, list_altlocs, parse_pdb
+from .utils import (
+    build_average_graph, build_bond_ensemble, build_graph, list_altlocs, parse_header, parse_pdb,
+)
 
 PDB_CONTENT = (
     b"ATOM      1  N   ALA A   1      11.104   6.134  -6.504  1.00  0.00           N\n"
@@ -610,3 +612,62 @@ class ModifiedResidueTests(TestCase):
         graph = build_graph(parse_pdb(self.write_pdb(lines)))
         self.assertEqual(graph['edges'], [])
         self.assertIsNone(graph['residues'][0]['parent'])
+
+
+HEADER_LINES = [
+    'HEADER    HYDROLASE                               01-JAN-00   9XYZ              \n',
+    'EXPDTA    X-RAY DIFFRACTION                                                     \n',
+    'REMARK   2 RESOLUTION.    1.80 ANGSTROMS.                                       \n',
+    'REMARK   3   R VALUE            (WORKING SET) : 0.193                           \n',
+    'REMARK   3   FREE R VALUE                     : 0.234                           \n',
+]
+
+
+class ReferenceValueTests(TestCase):
+    def write_pdb(self, lines):
+        fd, path = tempfile.mkstemp(suffix='.pdb')
+        with os.fdopen(fd, 'w') as f:
+            f.writelines(lines)
+        self.addCleanup(os.remove, path)
+        return path
+
+    def test_reference_classes(self):
+        # Glycin vor Prolin: N–CA und CA–C der Gly-Klasse, Peptidbindung mit Prolin-Wert
+        lines = [pdb_line(i + 1, name, res, seq, x) for i, (name, res, seq, x) in enumerate((
+            ('N', 'GLY', 1, 0.0), ('CA', 'GLY', 1, 1.451), ('C', 'GLY', 1, 2.967), ('O', 'GLY', 1, 4.198),
+            ('N', 'PRO', 2, 4.308), ('CA', 'PRO', 2, 5.774), ('C', 'PRO', 2, 7.299), ('CB', 'PRO', 2, 9.0),
+        ))]
+        edges = {(e['source'], e['target']): e['ref'] for e in build_graph(parse_pdb(self.write_pdb(lines)))['edges']}
+        self.assertEqual(edges[('A_1_N', 'A_1_CA')], [1.451, 0.016, 'N:CA:GLY'])
+        self.assertEqual(edges[('A_1_CA', 'A_1_C')], [1.516, 0.018, 'CA:C:GLY'])
+        self.assertEqual(edges[('A_1_C', 'A_1_O')], [1.231, 0.020, 'C:O:all'])
+        self.assertEqual(edges[('A_1_C', 'A_2_N')], [1.341, 0.016, 'C:N:PRO'])
+        self.assertEqual(edges[('A_2_N', 'A_2_CA')], [1.466, 0.015, 'N:CA:PRO'])
+        self.assertEqual(edges[('A_2_CA', 'A_2_CB')], [1.530, 0.020, 'CA:CB:other'])
+
+    def test_modified_residue_uses_parent_and_sidechain_has_no_reference(self):
+        edges = {(e['source'], e['target']): e['ref'] for e in build_graph(parse_pdb(self.write_pdb(MSE_LINES)))['edges']}
+        self.assertEqual(edges[('A_1_N', 'A_1_CA')][2], 'N:CA:other')
+        self.assertEqual(edges[('A_1_CA', 'A_1_CB')][2], 'CA:CB:other')
+        self.assertIsNone(edges[('A_1_CG', 'A_1_SE')])
+
+    def test_parse_header(self):
+        path = self.write_pdb(HEADER_LINES + residue_lines(1, 0.0))
+        self.assertEqual(parse_header(path), {
+            'id_code': '9XYZ', 'method': 'X-RAY DIFFRACTION', 'resolution': 1.8, 'r_work': 0.193, 'r_free': 0.234,
+        })
+        self.assertEqual(parse_header(self.write_pdb(residue_lines(1, 0.0))), {
+            'id_code': None, 'method': None, 'resolution': None, 'r_work': None, 'r_free': None,
+        })
+
+
+class StructureInfoViewTests(BaseTestCase):
+    def test_metadata_in_statistics(self):
+        pdb = self.make_pdb(personal=True)
+        pdb.file.save('meta.pdb', ContentFile(''.join(HEADER_LINES).encode() + PDB_CONTENT))
+        self.client.login(username='uploader', password='pw')
+        response = self.client.get(reverse('pdb_grapher:detail', args=[pdb.pk]))
+        self.assertContains(response, '<dd>Röntgenkristallographie</dd>', html=True)
+        self.assertContains(response, '<dd>1,80 Å</dd>', html=True)
+        self.assertContains(response, '<dd>0,234</dd>', html=True)
+        self.assertContains(response, 'Engh &amp; Huber (1991)')

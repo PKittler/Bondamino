@@ -231,6 +231,23 @@ input[type="file"] {
 }
 .stats-bonds .delta { margin-left: 6px; font-size: 0.8em; color: var(--bs-secondary-color); }
 
+/* Abweichung vom Referenzwert (Z-Score): Bindungsfarbe "Referenz" und Statistik */
+:root {
+    --z-ok: #2f9e44;
+    --z-warn: #f08c00;
+    --z-outlier: #e03131;
+    --z-none: #adb5bd;
+}
+[data-bs-theme="dark"] {
+    --z-ok: #69db7c;
+    --z-warn: #ffc078;
+    --z-outlier: #ff8787;
+    --z-none: #6c757d;
+}
+/* Spezifischer als Bootstraps Tabellenfarbe */
+.stats-bonds .z-warn { color: var(--z-warn); }
+.stats-bonds .z-outlier { color: var(--z-outlier); font-weight: 600; }
+
 /* Kürzeste (Min) und längste (Max) Bindungslänge */
 :root {
     --length-min-color: #0b7285;

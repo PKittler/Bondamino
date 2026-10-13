@@ -31,6 +31,78 @@ SIDECHAIN_BONDS = {
     'VAL': [('CA', 'CB'), ('CB', 'CG1'), ('CB', 'CG2')],
 }
 
+# Referenzwerte (Mittelwert, Standardabweichung in Å) nach Engh & Huber (1991), Acta Cryst.
+# A47, 392–400: Rückgrat und CA–CB. Seitenketten-Bindungen jenseits von CB haben (noch)
+# keine Referenz. Schlüssel: Atompaar und Klasse des Residuums; bei der Peptidbindung C–N
+# entscheidet das folgende Residuum (vor Prolin abweichend).
+REFERENCE_SOURCE = 'Engh & Huber (1991), Acta Cryst. A47, 392–400'
+REFERENCE_VALUES = {
+    ('N', 'CA', 'GLY'): (1.451, 0.016),
+    ('N', 'CA', 'PRO'): (1.466, 0.015),
+    ('N', 'CA', 'other'): (1.458, 0.019),
+    ('CA', 'C', 'GLY'): (1.516, 0.018),
+    ('CA', 'C', 'other'): (1.525, 0.021),
+    ('C', 'O', 'all'): (1.231, 0.020),
+    ('C', 'N', 'PRO'): (1.341, 0.016),
+    ('C', 'N', 'other'): (1.329, 0.014),
+    ('CA', 'CB', 'ALA'): (1.521, 0.033),
+    ('CA', 'CB', 'IVT'): (1.540, 0.027),
+    ('CA', 'CB', 'other'): (1.530, 0.020),
+}
+
+
+def _reference(atom1, atom2, bond_type, res_class, next_class=None):
+    """Referenz einer Bindung als [Mittelwert, Standardabweichung, Gruppe] oder None.
+    `res_class` ist der Name der (Ausgangs-)Aminosäure des Residuums, `next_class` der des
+    folgenden Residuums (nur für die Peptidbindung)."""
+    if res_class not in SIDECHAIN_BONDS:
+        return None  # keine Aminosäure oder modifizierte ohne bekannte Ausgangs-Aminosäure
+    pair = {atom1, atom2}
+    if bond_type == 'peptide':
+        if next_class not in SIDECHAIN_BONDS:
+            return None
+        key = ('C', 'N', 'PRO' if next_class == 'PRO' else 'other')
+    elif pair == {'N', 'CA'}:
+        key = ('N', 'CA', res_class if res_class in ('GLY', 'PRO') else 'other')
+    elif pair == {'CA', 'C'}:
+        key = ('CA', 'C', 'GLY' if res_class == 'GLY' else 'other')
+    elif pair == {'C', 'O'}:
+        key = ('C', 'O', 'all')
+    elif pair == {'CA', 'CB'}:
+        key = ('CA', 'CB', 'ALA' if res_class == 'ALA' else 'IVT' if res_class in ('ILE', 'VAL', 'THR') else 'other')
+    else:
+        return None
+    mean, sigma = REFERENCE_VALUES[key]
+    return [mean, sigma, ':'.join(key)]
+
+
+def parse_header(file_path):
+    """Strukturmetadaten aus dem PDB-Header: Methode (EXPDTA), Auflösung (REMARK 2) und
+    R-Werte (REMARK 3). Fehlende Angaben sind None."""
+    info = {'id_code': None, 'method': None, 'resolution': None, 'r_work': None, 'r_free': None}
+    with open(file_path, 'r') as f:
+        for line in f:
+            record = line[:6].strip()
+            if record in ('ATOM', 'HETATM', 'MODEL'):
+                break  # Header ist zu Ende
+            if record == 'HEADER':
+                info['id_code'] = line[62:66].strip() or None
+            elif record == 'EXPDTA':
+                method = line[10:].strip()
+                info['method'] = f"{info['method']}; {method}" if info['method'] else method
+            elif line.startswith('REMARK   2 RESOLUTION.'):
+                value = line[22:].split()
+                info['resolution'] = _float_or_none(value[0]) if value else None
+            elif line.startswith('REMARK   3') and ':' in line:
+                label, _, value = line[10:].partition(':')
+                label = ' '.join(label.split())
+                if label in ('R VALUE (WORKING SET)', 'R VALUE (WORKING + TEST SET)') and info['r_work'] is None:
+                    info['r_work'] = _float_or_none(value.strip())
+                elif label == 'FREE R VALUE' and info['r_free'] is None:
+                    info['r_free'] = _float_or_none(value.strip())
+    return info
+
+
 # Ausgangs-Aminosäure gängiger modifizierter Aminosäuren; gilt nur, wenn die Datei keine
 # MODRES-Einträge dazu hat (Dateien von RCSB bringen sie mit).
 MODIFIED_PARENTS = {
@@ -308,19 +380,25 @@ def _distance(a1, a2):
     )
 
 
+def _residue_class(residues, key):
+    """Name der Aminosäure für Referenzwerte: der eigene oder bei modifizierten die Ausgangs-Aminosäure."""
+    return getattr(residues[key], 'parent', None) or key[3]
+
+
 def _iter_bonds(residues):
-    """Liefert alle Bindungen als (source_id, target_id, typ, ungerundete Länge)."""
+    """Liefert alle Bindungen als (source_id, target_id, typ, ungerundete Länge, Referenz)."""
     ordered_keys = list(residues.keys())
     for i, key in enumerate(ordered_keys):
         chain_id, res_seq, i_code, res_name = key
         atoms = residues[key]
+        res_class = _residue_class(residues, key)
 
         sidechain = SIDECHAIN_BONDS.get(res_name) or getattr(atoms, 'sidechain_bonds', [])
         for bond_type, bonds in (('backbone', BACKBONE_BONDS), ('sidechain', sidechain)):
             for a1n, a2n in bonds:
                 if a1n in atoms and a2n in atoms:
                     yield (atom_id(chain_id, res_seq, i_code, a1n), atom_id(chain_id, res_seq, i_code, a2n),
-                           bond_type, _distance(atoms[a1n], atoms[a2n]))
+                           bond_type, _distance(atoms[a1n], atoms[a2n]), _reference(a1n, a2n, bond_type, res_class))
 
         if i + 1 < len(ordered_keys):
             next_key = ordered_keys[i + 1]
@@ -329,7 +407,8 @@ def _iter_bonds(residues):
                 length = _distance(atoms['C'], residues[next_key]['N'])
                 if length <= MAX_PEPTIDE_BOND_LENGTH:
                     yield (atom_id(chain_id, res_seq, i_code, 'C'), atom_id(next_chain, next_seq, next_i_code, 'N'),
-                           'peptide', length)
+                           'peptide', length,
+                           _reference('C', 'N', 'peptide', res_class, _residue_class(residues, next_key)))
 
 
 def build_graph(residues):
@@ -368,8 +447,9 @@ def build_graph(residues):
             })
 
     edges = [
-        {'source': source, 'target': target, 'length': round(length, 3), 'type': bond_type}
-        for source, target, bond_type, length in _iter_bonds(residues)
+        # ref: [Mittelwert, Standardabweichung, Gruppe] nach REFERENCE_SOURCE oder None
+        {'source': source, 'target': target, 'length': round(length, 3), 'type': bond_type, 'ref': ref}
+        for source, target, bond_type, length, ref in _iter_bonds(residues)
     ]
 
     residue_list = [
@@ -475,7 +555,7 @@ def build_bond_ensemble(file_path, models, altloc=None):
     for model_id in models or [None]:
         residues = parse_pdb(file_path, model_id=model_id, altloc=altloc)
         model_min = model_max = None
-        for source, target, _, length in _iter_bonds(residues):
+        for source, target, _, length, _ in _iter_bonds(residues):
             lengths.setdefault(f'{source}|{target}', []).append(length)
             if model_min is None or length < model_min[2]:
                 model_min = (source, target, length)

@@ -100,6 +100,14 @@
                                 </span>
                                 <span>{% translate 'Einheitlich' %}</span>
                             </button>
+                            <button class="btn btn-outline-secondary style-option" type="button" data-style="reference" onclick="setBondStyle('reference')" title="{% translate 'Bindungsfarbe: Abweichung vom Referenzwert (Engh & Huber 1991) in Standardabweichungen' %}">
+                                <span class="style-preview" aria-hidden="true">
+                                    <span class="style-preview-line" style="background:var(--z-ok)"></span>
+                                    <span class="style-preview-line" style="background:var(--z-warn)"></span>
+                                    <span class="style-preview-line" style="background:var(--z-outlier)"></span>
+                                </span>
+                                <span>{% translate 'Referenz' %}</span>
+                            </button>
                         </div>
 
                         <span class="vr"></span>
@@ -155,6 +163,13 @@
                                 <span>{% translate '- - Seitenkette' %}</span>
                                 <span class="d-flex flex-wrap column-gap-3 row-gap-1 mt-1" id="legend-elements"></span>
                             </div>
+                            <div class="d-flex flex-column gap-1 small text-body-secondary mt-2" id="legend-reference" hidden>
+                                <span class="fw-medium">{% translate 'Abweichung |Z|' %}</span>
+                                <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-ok)"></span>≤ 2</span>
+                                <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-warn)"></span>2–4</span>
+                                <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-outlier)"></span>{% translate '> 4 (Ausreißer)' %}</span>
+                                <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-none)"></span>{% translate 'ohne Referenz' %}</span>
+                            </div>
                         </aside>
                     </div>
                 </div>
@@ -199,6 +214,30 @@
                                             <dt>{% translate 'Models' %}</dt>
                                             <dd id="stat-models">{{ models|length|default:1 }}</dd>
                                         </div>
+                                        {% if structure_info.method_label %}
+                                        <div>
+                                            <dt>{% translate 'Methode' %}</dt>
+                                            <dd>{{ structure_info.method_label }}</dd>
+                                        </div>
+                                        {% endif %}
+                                        {% if structure_info.resolution %}
+                                        <div>
+                                            <dt>{% translate 'Auflösung' %}</dt>
+                                            <dd>{{ structure_info.resolution|floatformat:2 }} Å</dd>
+                                        </div>
+                                        {% endif %}
+                                        {% if structure_info.r_work %}
+                                        <div>
+                                            <dt title="{% translate 'R-Wert des Arbeitsdatensatzes' %}">R<sub>work</sub></dt>
+                                            <dd>{{ structure_info.r_work|floatformat:3 }}</dd>
+                                        </div>
+                                        {% endif %}
+                                        {% if structure_info.r_free %}
+                                        <div>
+                                            <dt title="{% translate 'R-Wert des Testdatensatzes (nicht für die Verfeinerung verwendet)' %}">R<sub>free</sub></dt>
+                                            <dd>{{ structure_info.r_free|floatformat:3 }}</dd>
+                                        </div>
+                                        {% endif %}
                                     </dl>
                                 </div>
                                 <div>
@@ -296,6 +335,18 @@
 
                         <section aria-labelledby="stats-bonds-title">
                             <h2 id="stats-bonds-title" class="stats-title text-uppercase text-body-secondary small fw-medium mb-3">{% translate 'Bindungen' %}</h2>
+                            <h3 class="small fw-medium mb-2">{% translate 'Abweichung von Referenzwerten' %}</h3>
+                            <dl class="stats-facts mb-3" id="stat-ref-facts"></dl>
+                            <div class="table-responsive mb-2">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="stat-ref-groups"></table>
+                            </div>
+                            <p class="small text-body-secondary mb-3">
+                                {% blocktranslate with source=structure_info.reference_source %}Referenzwerte nach {{ source }} für Rückgrat und CA–CB; Seitenketten-Bindungen jenseits von CB werden nicht bewertet. Z = (Länge − Referenz) / Standardabweichung, Ausreißer: |Z| &gt; 4.{% endblocktranslate %}
+                            </p>
+                            <h3 class="small fw-medium mb-2" id="stat-ref-outliers-title">{% translate 'Ausreißer' %}</h3>
+                            <div class="table-responsive mb-4">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="stat-ref-outliers"></table>
+                            </div>
                             <h3 class="small fw-medium mb-2">{% translate 'Peptidbindungen' %}</h3>
                             <div class="stats-narrow mb-4">
                                 <table class="table table-sm stats-share mb-0">
@@ -413,6 +464,7 @@
 
 <script id="graph-data" type="application/json">{{ graph_data|safe }}</script>
 {{ bond_ensemble|json_script:"bond-ensemble" }}
+{{ structure_info|json_script:"structure-info" }}
 <script src="{% static_v 'pdb_grapher/vendor/d3/d3.min.js' %}"></script>
 <script src="{% static_v 'pdb_grapher/js/graph.js' %}"></script>
 <script src="{% static_v 'pdb_grapher/js/notes.js' %}"></script>

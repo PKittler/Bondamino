@@ -15,9 +15,27 @@ from django.views.decorators.http import require_POST
 
 from .forms import AvailabilityForm, NoteForm, PDBUploadForm
 from .models import Language, Note, PDBFile, WorkGroup
-from .utils import parse_pdb, build_graph, build_average_graph, build_bond_ensemble, list_altlocs, list_models
+from .utils import (
+    REFERENCE_SOURCE, build_average_graph, build_bond_ensemble, build_graph, list_altlocs, list_models,
+    parse_header, parse_pdb,
+)
 
 AVERAGE_MODEL = 'avg'  # Pseudo-Model: Mittelwert der Bindungslängen über alle Models
+
+
+def _method_label(method):
+    """Lesbare Bezeichnung der Strukturbestimmungsmethode (EXPDTA), mehrere mit "; " getrennt."""
+    if not method:
+        return None
+    labels = {
+        'X-RAY DIFFRACTION': _('Röntgenkristallographie'),
+        'NEUTRON DIFFRACTION': _('Neutronenbeugung'),
+        'ELECTRON CRYSTALLOGRAPHY': _('Elektronenkristallographie'),
+        'ELECTRON MICROSCOPY': _('Elektronenmikroskopie'),
+        'SOLUTION NMR': _('NMR (Lösung)'),
+        'SOLID-STATE NMR': _('Festkörper-NMR'),
+    }
+    return '; '.join(labels.get(m.strip(), m.strip()) for m in method.split(';'))
 
 
 def _visible_pdb_or_404(user, pk):
@@ -99,6 +117,8 @@ def detail(request, pk):
     try:
         models = list_models(file_path)
         altlocs = list_altlocs(file_path)
+        structure_info = parse_header(file_path)
+        structure_info.update(method_label=_method_label(structure_info['method']), reference_source=REFERENCE_SOURCE)
         selected_model = models[0] if models else None
         graph_data = build_graph(parse_pdb(file_path, model_id=selected_model))
         bond_ensemble = build_bond_ensemble(file_path, models)
@@ -114,6 +134,7 @@ def detail(request, pk):
         'selected_model': selected_model,
         'average_model': AVERAGE_MODEL,
         'altlocs': altlocs,
+        'structure_info': structure_info,
         'bond_ensemble': bond_ensemble,
         'note_form': NoteForm(user=request.user, prefix='note-new'),
         'user_groups': WorkGroup.objects.filter(members=request.user),
