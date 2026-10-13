@@ -12,6 +12,9 @@
                     <button class="nav-link active" id="tab-graph" data-bs-toggle="tab" data-bs-target="#pane-graph" data-tab="graph" type="button" role="tab" aria-controls="pane-graph" aria-selected="true">{% translate 'Graph' %}</button>
                 </li>
                 <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-ramachandran" data-bs-toggle="tab" data-bs-target="#pane-ramachandran" data-tab="ramachandran" type="button" role="tab" aria-controls="pane-ramachandran" aria-selected="false">{% translate 'Ramachandran' %}</button>
+                </li>
+                <li class="nav-item" role="presentation">
                     <button class="nav-link" id="tab-data" data-bs-toggle="tab" data-bs-target="#pane-data" data-tab="data" type="button" role="tab" aria-controls="pane-data" aria-selected="false">{% translate 'Daten' %}</button>
                 </li>
                 <li class="nav-item" role="presentation">
@@ -229,13 +232,13 @@
                                         {% endif %}
                                         {% if structure_info.r_work %}
                                         <div>
-                                            <dt title="{% translate 'R-Wert des Arbeitsdatensatzes' %}">R<sub>work</sub></dt>
+                                            <dt>R<sub>work</sub></dt>
                                             <dd>{{ structure_info.r_work|floatformat:3 }}</dd>
                                         </div>
                                         {% endif %}
                                         {% if structure_info.r_free %}
                                         <div>
-                                            <dt title="{% translate 'R-Wert des Testdatensatzes (nicht für die Verfeinerung verwendet)' %}">R<sub>free</sub></dt>
+                                            <dt>R<sub>free</sub></dt>
                                             <dd>{{ structure_info.r_free|floatformat:3 }}</dd>
                                         </div>
                                         {% endif %}
@@ -342,11 +345,13 @@
                                 <table class="table table-sm stats-share stats-bonds mb-0" id="stat-ref-groups"></table>
                             </div>
                             <p class="small text-body-secondary mb-3">
-                                {% blocktranslate with source=structure_info.reference_source %}Referenzwerte nach {{ source }} für Rückgrat und CA–CB; Seitenketten-Bindungen jenseits von CB werden nicht bewertet. Z = (Länge − Referenz) / Standardabweichung, Ausreißer: |Z| &gt; 4.{% endblocktranslate %}
+                                {% blocktranslate with source=structure_info.reference_source %}Referenzwerte: {{ source }}{% endblocktranslate %}
                             </p>
-                            <h3 class="small fw-medium mb-2" id="stat-ref-outliers-title">{% translate 'Ausreißer' %}</h3>
-                            <div class="table-responsive mb-4">
-                                <table class="table table-sm stats-share stats-bonds mb-0" id="stat-ref-outliers"></table>
+                            <div id="stat-ref-outliers-block">
+                                <h3 class="small fw-medium mb-2" id="stat-ref-outliers-title">{% translate 'Ausreißer' %}</h3>
+                                <div class="table-responsive mb-4">
+                                    <table class="table table-sm stats-share stats-bonds mb-0" id="stat-ref-outliers"></table>
+                                </div>
                             </div>
                             <h3 class="small fw-medium mb-2">{% translate 'Peptidbindungen' %}</h3>
                             <div class="stats-narrow mb-4">
@@ -370,9 +375,11 @@
                                     </tfoot>
                                 </table>
                             </div>
-                            <h3 class="small fw-medium mb-2">{% translate 'Disulfidbrücken' %}</h3>
-                            <div class="stats-narrow table-responsive mb-4">
-                                <table class="table table-sm stats-share stats-bonds mb-0" id="stat-disulfides"></table>
+                            <div id="stat-disulfides-block">
+                                <h3 class="small fw-medium mb-2">{% translate 'Disulfidbrücken' %}</h3>
+                                <div class="stats-narrow table-responsive mb-4">
+                                    <table class="table table-sm stats-share stats-bonds mb-0" id="stat-disulfides"></table>
+                                </div>
                             </div>
                             <h3 class="small fw-medium mb-2">{% translate 'Kürzeste und längste Bindung' %}</h3>
                             <div class="table-responsive mb-4">
@@ -383,6 +390,19 @@
                             <h3 class="small fw-medium mb-2">{% translate 'Bindungen nach beteiligten Atomen' %}</h3>
                             <div class="table-responsive">
                                 <table class="table table-sm stats-share stats-bonds mb-0" id="stat-bond-groups"></table>
+                            </div>
+                        </section>
+
+                        <section aria-labelledby="stats-angles-title">
+                            <h2 id="stats-angles-title" class="stats-title text-uppercase text-body-secondary small fw-medium mb-3">{% translate 'Winkel' %}</h2>
+                            <h3 class="small fw-medium mb-2">{% translate 'cis- und trans-Peptidbindungen' %}</h3>
+                            <dl class="stats-facts mb-3" id="angle-omega-facts"></dl>
+                            <div class="stats-narrow table-responsive mb-4" id="angle-omega-block">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="angle-omega"></table>
+                            </div>
+                            <h3 class="small fw-medium mb-2">{% translate 'Bindungswinkel' %}</h3>
+                            <div class="table-responsive">
+                                <table class="table table-sm stats-share stats-bonds mb-0" id="angle-bond-types"></table>
                             </div>
                         </section>
                     </div>
@@ -421,6 +441,39 @@
                             <span>JPEG</span>
                         </button>
                         <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-histogram-format="svg" title="{% blocktranslate with format='SVG' %}Histogramm als {{ format }} herunterladen{% endblocktranslate %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>SVG</span>
+                        </button>
+                    </aside>
+                </div>
+            </div>
+            <div class="tab-pane" id="pane-ramachandran" role="tabpanel" aria-labelledby="tab-ramachandran" tabindex="0">
+                <div class="pane-box stats-pane card">
+                    <div class="card-body stats-body rama-body">
+                        <div class="rama-plot" id="angle-rama"></div>
+                    </div>
+                    <aside class="pane-aside stats-aside d-flex flex-column gap-2" id="angles-export" aria-labelledby="angles-legend-title" data-filename="{{ filename }}">
+                        <h3 id="angles-legend-title" class="sidebar-title text-uppercase text-body-secondary small fw-medium mb-0">{% translate 'Legende' %}</h3>
+                        <div class="d-flex flex-column gap-1 small text-body-secondary" id="angle-rama-legend"></div>
+                        <h3 class="sidebar-title text-uppercase text-body-secondary small fw-medium mt-3 mb-0">{% translate 'Download' %}</h3>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-ramachandran-format="png" title="{% blocktranslate with format='PNG' %}Ramachandran-Plot als {{ format }} herunterladen{% endblocktranslate %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>PNG</span>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-ramachandran-format="jpeg" title="{% blocktranslate with format='JPEG' %}Ramachandran-Plot als {{ format }} herunterladen{% endblocktranslate %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>JPEG</span>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-ramachandran-format="svg" title="{% blocktranslate with format='SVG' %}Ramachandran-Plot als {{ format }} herunterladen{% endblocktranslate %}">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
                                 <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
                                 <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>

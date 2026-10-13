@@ -144,6 +144,7 @@ input[type="file"] {
 }
 
 /* Ohne Sequenzleiste steht den Tabs Statistiken und Anmerkungen deren Höhe zusätzlich zur Verfügung. */
+/* Tab "Winkel" hat dasselbe Layout wie "Statistiken" (.stats-pane) */
 .stats-pane.pane-box, .notes-pane.pane-box { height: calc(100vh - 227px + 80px); min-height: 480px; }
 
 /* Graph-Tab: Zeichenfläche und Legende nebeneinander */
@@ -230,6 +231,35 @@ input[type="file"] {
     color: var(--bs-secondary-color);
 }
 .stats-bonds .delta { margin-left: 6px; font-size: 0.8em; color: var(--bs-secondary-color); }
+
+/* Ramachandran-Plot: quadratisch, skaliert über viewBox mit der Breite */
+:root {
+    --rama-general: #0d6efd;
+    --rama-gly: #f08c00;
+    --rama-pro: #2f9e44;
+}
+[data-bs-theme="dark"] {
+    --rama-general: #74c0fc;
+    --rama-gly: #ffc078;
+    --rama-pro: #69db7c;
+}
+/* Quadratisch (φ und ψ gleich skaliert), so hoch wie der Tab, horizontal zentriert.
+   Ist der Tab schmaler als hoch, begrenzt die Breite; das SVG skaliert über viewBox. */
+.rama-body { display: flex; justify-content: center; align-items: stretch; overflow: hidden; }
+.rama-plot { height: 100%; aspect-ratio: 1; max-width: 100%; min-height: 280px; }
+.rama-plot svg { display: block; width: 100%; height: 100%; }
+.rama-legend-dot { flex: none; margin-top: 0.35em; }
+.rama-general { fill: var(--rama-general); }
+.rama-gly { fill: var(--rama-gly); }
+.rama-pro { fill: var(--rama-pro); }
+.rama-frame { stroke: var(--bs-border-color); }
+.rama-point { cursor: pointer; stroke: var(--bs-body-bg); stroke-width: 0.8; }
+.rama-point.selected { stroke: var(--bs-body-color); stroke-width: 2; }
+.rama-zero { stroke: var(--bs-border-color); stroke-dasharray: 3 3; }
+.rama-minor line { stroke: var(--bs-border-color-translucent); stroke-opacity: 0.45; }
+
+/* cis-Peptidbindung zwischen zwei Zellen der Sequenzleiste */
+.seq-cis line { stroke: var(--bs-info); stroke-width: 2.5; stroke-dasharray: 2 2.5; }
 
 /* Abweichung vom Referenzwert (Z-Score): Bindungsfarbe "Referenz" und Statistik */
 :root {

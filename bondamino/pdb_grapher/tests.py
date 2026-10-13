@@ -707,3 +707,15 @@ class DisulfideTests(TestCase):
         ssbond = 'SSBOND   1 CYS A    1    CYS A    3                          1555   2655  2.05  \n'
         lines = [ssbond] + cys_lines(1, 1, 0.0, 10.0) + cys_lines(6, 3, 20.0, 13.0)
         self.assertEqual(self.bridges(lines), [])
+
+
+class AnglesTabTests(BaseTestCase):
+    def test_angles_tab_and_export_buttons(self):
+        pdb = self.make_pdb(personal=True)
+        self.client.login(username='uploader', password='pw')
+        response = self.client.get(reverse('pdb_grapher:detail', args=[pdb.pk]))
+        self.assertContains(response, 'id="tab-ramachandran"')
+        self.assertContains(response, 'id="angle-bond-types"')
+        self.assertContains(response, 'id="angle-rama"')
+        for fmt in ('png', 'jpeg', 'svg'):
+            self.assertContains(response, f'data-ramachandran-format="{fmt}"')

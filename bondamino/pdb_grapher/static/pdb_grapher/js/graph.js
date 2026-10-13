@@ -630,6 +630,8 @@ function render(canvas, graphData, bondStyle, layout, animate) {
         .attr('opacity', e => bondLabel(e).visible ? 1 : 0);
 
     // --- Nodes ---
+    // Bindungswinkel mit dem Atom in der Mitte (für den Tooltip)
+    const anglesByCenter = analyzeAngles(graphData).byCenter;
     const nodeTransform = n => `translate(${positions[n.id].x},${positions[n.id].y})`;
     gNodes.selectAll('g.atom-group')
         .data(graphData.nodes.filter(n => positions[n.id]), n => n.id)
@@ -645,8 +647,10 @@ function render(canvas, graphData, bondStyle, layout, animate) {
             update => update,
             fadeOut,
         )
-        .call(g => g.select('title').text(n =>
-            `${n.label} · ${n.residue} ${n.residue_seq}${n.i_code || ''} (${interpolate(gettext('Chain %s'), [n.chain])})`))
+        .call(g => g.select('title').text(n => [
+            `${n.label} · ${n.residue} ${n.residue_seq}${n.i_code || ''} (${interpolate(gettext('Chain %s'), [n.chain])})`,
+            ...(anglesByCenter.get(n.id) || []).map(a => `${a.type}: ${formatAngle(a.value)}`),
+        ].join('\n')))
         .call(g => g.select('text').text(n => n.label))
         .call(g => g.select('circle').transition(t).attr('fill', n => getElementColor(n.element)))
         .transition(t)
@@ -728,6 +732,9 @@ function renderSequence(canvas, graphData) {
     const residues = graphData.residues;
     const { breaks } = analyzePeptideBonds(graphData);
     const bridges = disulfidePartners(graphData);
+    // cis-Peptidbindungen, Schlüssel: Index des Residuums nach der Bindung
+    const cisBonds = new Map(analyzeAngles(graphData).omegas.filter(o => o.kind === 'cis').map(o => [o.res.index, o]));
+    const cisMarks = [];
     let x = 0;
     const gaps = [];
     const cells = residues.map((res, i) => {
@@ -738,6 +745,11 @@ function renderSequence(canvas, graphData) {
             x += SEQ_BREAK_GAP;
             // Mitte des Zwischenraums zwischen den beiden Zellen (Zellen sind SEQ_CELL_W - 2 breit)
             gaps.push({ ...chainBreak, res, x: x - (SEQ_BREAK_GAP + 2) / 2 });
+        }
+        const cis = cisBonds.get(res.index);
+        if (cis) {
+            x += SEQ_BREAK_GAP;
+            cisMarks.push({ ...cis, x: x - (SEQ_BREAK_GAP + 2) / 2 });
         }
         const cell = { res, x, chainStart };
         x += SEQ_CELL_W;
@@ -805,6 +817,21 @@ function renderSequence(canvas, graphData) {
                 distance: g.distance.toLocaleString(LOCALE, { maximumFractionDigits: 1 }),
             }, true)));
 
+    svg.selectAll('g.seq-cis')
+        .data(cisMarks, m => residueKey(m.res))
+        .join(enter => {
+            const g = enter.append('g').attr('class', 'seq-cis');
+            g.append('title');
+            g.append('rect').attr('class', 'seq-break-hit').attr('x', -4).attr('width', 8)
+                .attr('y', 0).attr('height', SEQ_TICK_H + SEQ_CELL_H);
+            g.append('line').attr('y1', 1).attr('y2', SEQ_TICK_H + SEQ_CELL_H);
+            return g;
+        })
+        .attr('transform', m => `translate(${m.x},0)`)
+        .call(g => g.select('title').text(m => interpolate(
+            gettext('cis-Peptidbindung zwischen %(from)s und %(to)s (ω = %(omega)s)'),
+            { from: `${m.prev.name} ${m.prev.pos}`, to: `${m.res.name} ${m.res.pos}`, omega: formatAngle(m.omega) }, true)));
+
     updateSelection(canvas);
 }
 
@@ -844,6 +871,7 @@ function updateSelection(canvas) {
     canvas.viewport.selectAll('g.residue-label').classed('selected', r => residueKey(r) === key);
     if (canvas.seqCells) canvas.seqCells.classed('selected', c => residueKey(c.res) === key);
     if (canvas.tableRows) canvas.tableRows.classed('selected', n => nodeResidueKey(n) === key);
+    if (canvas.ramaPoints) canvas.ramaPoints.classed('selected', p => residueKey(p.res) === key).filter('.selected').raise();
 }
 
 // Springt in der sichtbaren Ansicht (Graph oder Tabelle) zur Aminosäure; die jeweils
@@ -1225,7 +1253,7 @@ function renderReferenceStats(graphData) {
             [gettext('Bewertete Bindungen'), interpolate(gettext('%(rated)s von %(total)s (%(share)s)'), {
                 rated: formatInt(s.rated), total: formatInt(s.total), share: formatPercent(s.total ? 100 * s.rated / s.total : 0),
             }, true)],
-            [gettext('RMSZ'), formatRmsz(s.rmsz), gettext('Wurzel aus dem mittleren quadrierten Z-Wert; um 1 bedeutet Abweichungen in der erwarteten Größenordnung')],
+            [gettext('RMSZ'), formatRmsz(s.rmsz)],
             [interpolate(gettext('Ausreißer (|Z| > %s)'), [Z_OUTLIER]), formatInt(s.outliers.length)],
         ])
         .join(enter => {
@@ -1234,7 +1262,7 @@ function renderReferenceStats(graphData) {
             div.append('dd');
             return div;
         })
-        .call(div => div.select('dt').text(d => d[0]).attr('title', d => d[2] || null))
+        .call(div => div.select('dt').text(d => d[0]))
         .call(div => div.select('dd').text(d => d[1]));
 
     const groups = d3.select('#stat-ref-groups');
@@ -1259,10 +1287,8 @@ function renderReferenceStats(graphData) {
     d3.select('#stat-ref-outliers-title').text(interpolate(gettext('Ausreißer (|Z| > %s)'), [Z_OUTLIER]));
     const list = d3.select('#stat-ref-outliers');
     list.selectAll('*').remove();
-    if (!s.outliers.length) {
-        list.append('tbody').append('tr').append('td').attr('class', 'text-body-secondary').text(gettext('Keine Ausreißer'));
-        return;
-    }
+    d3.select('#stat-ref-outliers-block').property('hidden', !s.outliers.length);
+    if (!s.outliers.length) return;
     list.append('thead').append('tr').selectAll('th')
         .data([[gettext('Atome')], [gettext('Kette')], [gettext('Pos.')], [gettext('Aminosäure')],
                [gettext('Länge (Å)'), true], [gettext('Referenz (Å)'), true], ['Z', true]])
@@ -1280,6 +1306,415 @@ function renderReferenceStats(graphData) {
         body.append('tr').append('td').attr('colspan', 7).attr('class', 'small text-body-secondary')
             .text(interpolate(gettext('… und %s weitere (vollständig im JSON-Export)'), [formatInt(s.outliers.length - REFERENCE_OUTLIER_ROWS)]));
     }
+}
+
+// ===== Winkel: Bindungswinkel, Torsionswinkel φ/ψ und ω =====
+// Berechnet im Browser aus den Atomkoordinaten des angezeigten Models (bzw. Durchschnitts).
+const CIS_MAX_OMEGA = 30;     // |ω| < 30°: cis-Peptidbindung
+const TRANS_MIN_OMEGA = 150;  // |ω| ≥ 150°: trans; dazwischen verdreht
+const BACKBONE_ORDER = ['N', 'CA', 'C', 'O', 'OXT'];
+const DEG = 180 / Math.PI;
+
+const vec = (a, b) => [b.x - a.x, b.y - a.y, b.z - a.z];
+const dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+const cross = (u, v) => [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+
+// Winkel a–b–c in Grad (b ist das mittlere Atom).
+function bondAngle(a, b, c) {
+    const u = vec(b, a), v = vec(b, c);
+    const cos = dot(u, v) / Math.sqrt(dot(u, u) * dot(v, v));
+    return Math.acos(Math.max(-1, Math.min(1, cos))) * DEG;
+}
+
+// Torsionswinkel p0–p1–p2–p3 in Grad (−180 … 180, IUPAC-Konvention).
+function dihedral(p0, p1, p2, p3) {
+    const b0 = vec(p1, p0), b2 = vec(p2, p3);
+    let b1 = vec(p1, p2);
+    const len = Math.sqrt(dot(b1, b1));
+    b1 = b1.map(v => v / len);
+    const v = b0.map((c, i) => c - dot(b0, b1) * b1[i]);
+    const w = b2.map((c, i) => c - dot(b2, b1) * b1[i]);
+    return Math.atan2(dot(cross(b1, v), w), dot(v, w)) * DEG;
+}
+
+// Auf 0,1° gerundet; `|| 0` macht aus −0 eine 0 (sonst "−0,0°")
+const roundAngle = v => Math.round(v * 10) / 10 || 0;
+const formatAngle = v => `${roundAngle(v).toLocaleString(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}°`;
+
+// Klasse im Ramachandran-Plot; modifizierte Aminosäuren zählen wie ihre Ausgangs-Aminosäure.
+function ramaClass(res) {
+    const name = res.parent || res.name;
+    return name === 'GLY' ? 'gly' : name === 'PRO' ? 'pro' : 'general';
+}
+const RAMA_CLASSES = ['general', 'gly', 'pro'];
+const ramaClassLabel = cls => ({ general: gettext('Übrige Aminosäuren'), gly: gettext('Glycin'), pro: gettext('Prolin') })[cls];
+
+// φ/ψ je Aminosäure, ω je Peptidbindung und alle Bindungswinkel. Torsionen über eine
+// Peptidbindung gibt es nur, wo der Server eine Bindung erkannt hat (keine Kettenlücke).
+function analyzeAngles(graphData) {
+    const nodes = new Map(graphData.nodes.map(n => [n.id, n]));
+    const peptides = new Set(graphData.edges.filter(e => e.type === 'peptide').map(edgeKey));
+    const atom = (res, name) => nodes.get(`${res.chain}_${res.pos}_${name}`);
+    const linked = (a, b) => {
+        const c = atom(a, 'C'), n = atom(b, 'N');
+        return Boolean(c && n && peptides.has(`${c.id}|${n.id}`));
+    };
+
+    const residues = graphData.residues;
+    const ramachandran = [];
+    const omegas = [];
+    residues.forEach((res, i) => {
+        const prev = residues[i - 1], next = residues[i + 1];
+        const n = atom(res, 'N'), ca = atom(res, 'CA'), c = atom(res, 'C');
+        if (!n || !ca || !c) return;
+        const phi = prev && linked(prev, res) ? dihedral(atom(prev, 'C'), n, ca, c) : null;
+        const psi = next && linked(res, next) ? dihedral(n, ca, c, atom(next, 'N')) : null;
+        if (phi !== null && psi !== null) ramachandran.push({ res, phi, psi, cls: ramaClass(res) });
+        if (next && linked(res, next) && atom(next, 'CA')) {
+            const omega = dihedral(ca, c, atom(next, 'N'), atom(next, 'CA'));
+            const abs = Math.abs(omega);
+            const kind = abs < CIS_MAX_OMEGA ? 'cis' : abs < TRANS_MIN_OMEGA ? 'twisted' : 'trans';
+            omegas.push({ prev: res, res: next, omega, kind });
+        }
+    });
+
+    // Bindungswinkel: je Atom alle Paare seiner Bindungspartner. Reihenfolge der Endatome:
+    // früheres Residuum zuerst (C–N–CA über die Peptidbindung), im Residuum nach Rückgrat
+    // (N, CA, C, O); der Partner einer Disulfidbrücke steht immer am Ende (CB–SG–SG).
+    const neighbors = new Map();
+    const disulfide = new Set();
+    graphData.edges.forEach(e => {
+        if (!nodes.has(e.source) || !nodes.has(e.target)) return;
+        [[e.source, e.target], [e.target, e.source]].forEach(([a, b]) => {
+            neighbors.set(a, [...(neighbors.get(a) || []), b]);
+            if (e.type === 'disulfide') disulfide.add(`${a}|${b}`);
+        });
+    });
+    const priority = n => { const i = BACKBONE_ORDER.indexOf(n.label); return i < 0 ? BACKBONE_ORDER.length : i; };
+    const rank = (center, n) => [disulfide.has(`${center.id}|${n.id}`) ? 1 : 0, n.residue_index, priority(n), n.label];
+    const compare = (center, a, b) => {
+        const ra = rank(center, a), rb = rank(center, b);
+        for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] < rb[i] ? -1 : 1;
+        return 0;
+    };
+    const bondAngles = [];
+    const byCenter = new Map();
+    neighbors.forEach((ids, centerId) => {
+        const center = nodes.get(centerId);
+        for (let i = 0; i < ids.length; i++) {
+            for (let j = i + 1; j < ids.length; j++) {
+                const [a, c] = [nodes.get(ids[i]), nodes.get(ids[j])].sort((x, y) => compare(center, x, y));
+                const angle = { atoms: [a, center, c], type: `${a.label}–${center.label}–${c.label}`, value: bondAngle(a, center, c) };
+                bondAngles.push(angle);
+                byCenter.set(centerId, [...(byCenter.get(centerId) || []), angle]);
+            }
+        }
+    });
+    const angleTypes = d3.groups(bondAngles, a => a.type)
+        .map(([type, items]) => ({
+            type, items, count: items.length, mean: d3.mean(items, a => a.value),
+            sd: items.length > 1 ? d3.deviation(items, a => a.value) : null,
+            min: d3.min(items, a => a.value), max: d3.max(items, a => a.value),
+        }))
+        .sort((a, b) => d3.descending(a.count, b.count) || d3.ascending(a.type, b.type));
+
+    return { ramachandran, omegas, bondAngles, angleTypes, byCenter };
+}
+
+// Ramachandran-Plot in `svg` (Tab und Bild-Export). Farben kommen über CSS-Klassen
+// (.rama-general, .rama-gly, .rama-pro). Liefert die Auswahl der Punkte.
+const RAMA_SIZE = 480;
+const RAMA_MAJOR_STEP = 60; // Hauptgitter und Achsenbeschriftung (°)
+const RAMA_MINOR_STEP = 20; // Hilfsgitter (°)
+const RAMA_MARGIN = { top: 12, right: 14, bottom: 46, left: 56 };
+function drawRamachandran(svg, points, size) {
+    const m = RAMA_MARGIN;
+    const x = d3.scaleLinear().domain([-180, 180]).range([m.left, size - m.right]);
+    const y = d3.scaleLinear().domain([-180, 180]).range([size - m.bottom, m.top]);
+    const ticks = d3.range(-180, 181, RAMA_MAJOR_STEP);
+    const degrees = d => `${d}°`;
+
+    // Hilfsgitter (feiner als das Hauptgitter), unter allem anderen
+    const minor = d3.range(-180, 181, RAMA_MINOR_STEP).filter(v => v % RAMA_MAJOR_STEP !== 0);
+    const minorGrid = svg.append('g').attr('class', 'rama-minor');
+    minorGrid.selectAll('line.v').data(minor).join('line').attr('class', 'v')
+        .attr('x1', x).attr('x2', x).attr('y1', y(-180)).attr('y2', y(180));
+    minorGrid.selectAll('line.h').data(minor).join('line').attr('class', 'h')
+        .attr('x1', x(-180)).attr('x2', x(180)).attr('y1', y).attr('y2', y);
+
+    const xAxis = svg.append('g').attr('class', 'hist-axis').attr('transform', `translate(0,${y(-180)})`)
+        .call(d3.axisBottom(x).tickValues(ticks).tickSize(-(y(-180) - y(180))).tickPadding(8).tickFormat(degrees));
+    const yAxis = svg.append('g').attr('class', 'hist-axis').attr('transform', `translate(${x(-180)},0)`)
+        .call(d3.axisLeft(y).tickValues(ticks).tickSize(-(x(180) - x(-180))).tickPadding(8).tickFormat(degrees));
+    [xAxis, yAxis].forEach(axis => axis.selectAll('.tick line').attr('class', 'hist-grid'));
+    svg.append('rect').attr('class', 'rama-frame').attr('fill', 'none')
+        .attr('x', x(-180)).attr('y', y(180)).attr('width', x(180) - x(-180)).attr('height', y(-180) - y(180));
+    svg.append('line').attr('class', 'rama-zero').attr('x1', x(0)).attr('x2', x(0)).attr('y1', y(-180)).attr('y2', y(180));
+    svg.append('line').attr('class', 'rama-zero').attr('x1', x(-180)).attr('x2', x(180)).attr('y1', y(0)).attr('y2', y(0));
+
+    svg.append('text').attr('class', 'hist-label').attr('text-anchor', 'middle')
+        .attr('x', (x(-180) + x(180)) / 2).attr('y', size - 8).text('φ');
+    svg.append('text').attr('class', 'hist-label').attr('text-anchor', 'middle')
+        .attr('transform', `translate(16,${(y(-180) + y(180)) / 2}) rotate(-90)`).text('ψ');
+
+    // Glycin und Prolin über den übrigen zeichnen, damit sie sichtbar bleiben
+    const order = cls => RAMA_CLASSES.indexOf(cls);
+    return svg.append('g').selectAll('circle')
+        .data([...points].sort((a, b) => order(a.cls) - order(b.cls)))
+        .join('circle')
+        .attr('class', p => `rama-point rama-${p.cls}`)
+        .attr('cx', p => x(p.phi)).attr('cy', p => y(p.psi)).attr('r', 3.2);
+}
+
+function renderAngles(canvas, graphData) {
+    const container = d3.select('#angle-rama');
+    if (container.empty()) return;
+    const angles = analyzeAngles(graphData);
+
+    // Ramachandran-Plot (skaliert über viewBox mit der Breite)
+    container.selectAll('*').remove();
+    const svg = container.append('svg')
+        .attr('viewBox', `0 0 ${RAMA_SIZE} ${RAMA_SIZE}`)
+        .attr('role', 'img')
+        .attr('aria-label', interpolate(gettext('Ramachandran-Plot mit %s Aminosäuren'), [formatInt(angles.ramachandran.length)]));
+    canvas.ramaPoints = drawRamachandran(svg, angles.ramachandran, RAMA_SIZE)
+        .on('click', (event, p) => jumpToResidue(canvas, p.res));
+    canvas.ramaPoints.append('title').text(p =>
+        `${p.res.name} ${p.res.pos} (${chainLabel(p.res.chain)})\nφ = ${formatAngle(p.phi)}, ψ = ${formatAngle(p.psi)}`);
+
+    const counts = d3.rollup(angles.ramachandran, v => v.length, p => p.cls);
+    d3.select('#angle-rama-legend').selectAll('div')
+        .data(RAMA_CLASSES)
+        .join(enter => {
+            // Punkt an der ersten Textzeile ausrichten (lange Bezeichnungen brechen in der Leiste um)
+            const div = enter.append('div').attr('class', 'd-flex align-items-start gap-2');
+            div.append('span').attr('class', 'legend-dot rama-legend-dot');
+            div.append('span').attr('class', 'rama-legend-label');
+            return div;
+        })
+        .call(div => div.select('.legend-dot').style('background', cls => `var(--rama-${cls})`))
+        .call(div => div.select('.rama-legend-label').text(cls => `${ramaClassLabel(cls)} (${formatInt(counts.get(cls) || 0)})`));
+
+    // ω
+    const kinds = d3.rollup(angles.omegas, v => v.length, o => o.kind);
+    const cis = angles.omegas.filter(o => o.kind === 'cis');
+    const cisPro = cis.filter(o => ramaClass(o.res) === 'pro').length;
+    d3.select('#angle-omega-facts').selectAll('div')
+        .data([
+            [gettext('Peptidbindungen'), formatInt(angles.omegas.length)],
+            ['trans', formatInt(kinds.get('trans') || 0)],
+            ['cis', interpolate(gettext('%(count)s (davon vor Prolin: %(pro)s)'), { count: formatInt(cis.length), pro: formatInt(cisPro) }, true)],
+            [gettext('verdreht'), formatInt(kinds.get('twisted') || 0)],
+        ])
+        .join(enter => {
+            const div = enter.append('div');
+            div.append('dt');
+            div.append('dd');
+            return div;
+        })
+        .call(div => div.select('dt').text(d => d[0]))
+        .call(div => div.select('dd').text(d => d[1]));
+
+    const omegaTable = d3.select('#angle-omega');
+    omegaTable.selectAll('*').remove();
+    // Liste nur, wenn es Peptidbindungen gibt, die nicht trans sind
+    const unusual = angles.omegas.filter(o => o.kind !== 'trans');
+    d3.select('#angle-omega-block').property('hidden', !unusual.length);
+    if (unusual.length) {
+        omegaTable.append('thead').append('tr').selectAll('th')
+            .data([[gettext('Kette')], [gettext('Pos.')], [gettext('Aminosäuren')], ['ω', true], [gettext('Art')]])
+            .join('th').attr('scope', 'col').attr('class', c => c[1] ? 'text-end' : null).text(c => c[0]);
+        const body = omegaTable.append('tbody');
+        unusual.forEach(o => {
+            const tr = body.append('tr');
+            tr.append('td').text(chainId(o.res.chain));
+            tr.append('td').text(`${o.prev.pos}–${o.res.pos}`);
+            tr.append('td').text(`${o.prev.name}–${o.res.name}`);
+            tr.append('td').attr('class', 'text-end').text(formatAngle(o.omega));
+            tr.append('td').attr('class', o.kind === 'cis' && ramaClass(o.res) !== 'pro' ? 'z-outlier' : null)
+                .text(omegaKindLabel(o));
+        });
+    }
+
+    renderAngleGroups(angles);
+    updateSelection(canvas);
+}
+
+const formatDegrees = v => v === null || v === undefined ? '–'
+    : roundAngle(v).toLocaleString(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const formatDegreesDelta = v => v.toLocaleString(LOCALE,
+    { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: 'exceptZero' });
+
+// Atome eines Bindungswinkels für die Tabellen (wie describeBond, mit drei Atomen).
+function describeAngle(atoms) {
+    const pos = atom => `${atom.residue_seq}${atom.i_code || ''}`;
+    const unique = values => [...new Set(values)];
+    return {
+        chain: unique(atoms.map(a => chainId(a.chain))).join('–'),
+        pos: unique(atoms.map(a => `${a.chain}|${pos(a)}`)).map(v => v.split('|')[1]).join('–'),
+        serials: atoms.map(a => a.serial ?? '?').join('–'),
+        residues: unique(atoms.map(a => `${a.chain}|${pos(a)}|${a.residue}`)).map(v => v.split('|')[2]).join('–'),
+    };
+}
+
+// Bindungswinkel je Typ; jede Zeile klappt die einzelnen Winkel auf (wie bei den Bindungen).
+const expandedAngleGroups = new Set();
+function renderAngleGroups(angles) {
+    const table = d3.select('#angle-bond-types');
+    if (table.empty()) return;
+    table.selectAll('*').remove();
+    const columns = [
+        { label: gettext('Winkel') }, { label: gettext('Anzahl'), num: true }, { label: gettext('Durchschnitt (°)'), num: true },
+        { label: gettext('Std.-Abw. (°)'), num: true }, { label: gettext('Min (°)'), num: true, cls: 'length-min' },
+        { label: gettext('Max (°)'), num: true, cls: 'length-max' },
+    ];
+    table.append('thead').append('tr').selectAll('th').data(columns).join('th')
+        .attr('scope', 'col')
+        .attr('class', c => [c.num && 'text-end', c.cls].filter(Boolean).join(' ') || null)
+        .text(c => c.label);
+
+    angles.angleTypes.forEach((group, i) => {
+        const body = table.append('tbody').attr('class', 'bond-group');
+        const detailsId = `angle-group-${i}`;
+        const summary = body.append('tr').attr('class', 'bond-summary');
+        const toggle = summary.append('th').attr('scope', 'row')
+            .append('button').attr('type', 'button').attr('class', 'bond-toggle')
+            .attr('aria-controls', detailsId)
+            .html(CHEVRON_SVG);
+        toggle.append('span').text(group.type);
+        summary.append('td').attr('class', 'text-end').text(formatInt(group.count));
+        [[group.mean], [group.sd], [group.min, 'length-min'], [group.max, 'length-max']].forEach(([v, cls]) =>
+            summary.append('td').attr('class', cls ? `text-end ${cls}` : 'text-end').text(formatDegrees(v)));
+
+        const details = body.append('tr').attr('class', 'bond-details').attr('id', detailsId);
+        const cell = details.append('td').attr('colspan', columns.length);
+        const setExpanded = expanded => {
+            toggle.attr('aria-expanded', expanded);
+            details.property('hidden', !expanded);
+            if (expanded) {
+                expandedAngleGroups.add(group.type);
+                if (cell.select('table').empty()) renderAngleList(cell, group);
+            } else {
+                expandedAngleGroups.delete(group.type);
+            }
+        };
+        summary.on('click', () => setExpanded(details.property('hidden')));
+        setExpanded(expandedAngleGroups.has(group.type));
+    });
+
+    const total = table.append('tfoot').append('tr').attr('class', 'share-total');
+    total.append('th').attr('scope', 'row').text(gettext('Bindungswinkel gesamt'));
+    total.append('td').attr('class', 'text-end').text(formatInt(angles.bondAngles.length));
+    total.append('td').attr('colspan', 4);
+}
+
+// Einzelne Winkel eines Typs in Dateireihenfolge; kleinster und größter sind markiert.
+function renderAngleList(cell, group) {
+    const list = cell.append('table').attr('class', 'table table-sm bond-list');
+    list.append('thead').append('tr').selectAll('th')
+        .data([gettext('Winkel (°)'), gettext('Abw. vom Ø (°)'), gettext('Kette'), gettext('Pos.'), gettext('Atom-Nr.'), gettext('Aminosäure'), ''])
+        .join('th').attr('scope', 'col')
+        .attr('class', (c, i) => i < 2 ? 'text-end' : null)
+        .text(c => c);
+    const body = list.append('tbody');
+    const sorted = [...group.items].sort((a, b) => d3.ascending(a.atoms[1].residue_index, b.atoms[1].residue_index));
+    sorted.forEach(angle => {
+        const d = describeAngle(angle.atoms);
+        const tr = body.append('tr');
+        tr.append('td').attr('class', 'text-end').text(formatDegrees(angle.value));
+        tr.append('td').attr('class', 'text-end').text(formatDegreesDelta(angle.value - group.mean));
+        [d.chain, d.pos, d.serials, d.residues].forEach(v => tr.append('td').text(v));
+        const mark = tr.append('td');
+        if (group.min === group.max) return;
+        if (angle.value === group.min) mark.append('span').attr('class', 'badge length-min').text(gettext('Min'));
+        if (angle.value === group.max) mark.append('span').attr('class', 'badge length-max').text(gettext('Max'));
+    });
+}
+
+const omegaKindLabel = o => o.kind === 'cis'
+    ? (ramaClass(o.res) === 'pro' ? gettext('cis (vor Prolin)') : gettext('cis'))
+    : gettext('verdreht');
+
+// Winkel für den JSON-/PDF-Export
+function anglesExport(graphData) {
+    const angles = analyzeAngles(graphData);
+    const round1 = v => v === null ? null : roundTo(v, 1);
+    const residue = r => ({ residue: r.name, position: r.pos, chain: r.chain.trim() });
+    return {
+        unit: '°',
+        ramachandran: angles.ramachandran.map(p => ({ ...residue(p.res), class: p.cls, phi: round1(p.phi), psi: round1(p.psi) })),
+        omega: {
+            cis_below: CIS_MAX_OMEGA, trans_from: TRANS_MIN_OMEGA,
+            count: angles.omegas.length,
+            trans: angles.omegas.filter(o => o.kind === 'trans').length,
+            cis: angles.omegas.filter(o => o.kind === 'cis').length,
+            cis_before_proline: angles.omegas.filter(o => o.kind === 'cis' && ramaClass(o.res) === 'pro').length,
+            twisted: angles.omegas.filter(o => o.kind === 'twisted').length,
+            non_trans: angles.omegas.filter(o => o.kind !== 'trans').map(o => ({
+                from: residue(o.prev), to: residue(o.res), omega: round1(o.omega), kind: o.kind,
+            })),
+        },
+        bond_angles: angles.angleTypes.map(t => ({
+            angle: t.type, count: t.count, mean: round1(t.mean), sd: round1(t.sd), min: round1(t.min), max: round1(t.max),
+        })),
+    };
+}
+
+// Ramachandran-Plot als eigenständige SVG-Datei (feste Farben, weißer Hintergrund).
+const RAMA_EXPORT_SIZE = { width: 800, height: 800 };
+// Als Funktion, da HIST_EXPORT_STYLE weiter unten in der Datei definiert ist
+const ramaExportStyle = () => HIST_EXPORT_STYLE + `
+    .rama-frame { stroke: #adb5bd; }
+    .rama-minor line { stroke: rgba(0, 0, 0, 0.045); }
+    .rama-zero { stroke: #adb5bd; stroke-dasharray: 3 3; }
+    .rama-point { stroke: #fff; stroke-width: 0.8; }
+    .rama-general { fill: #0d6efd; }
+    .rama-gly { fill: #f08c00; }
+    .rama-pro { fill: #2f9e44; }
+`;
+function ramachandranSvgText(graphData) {
+    const { width, height } = RAMA_EXPORT_SIZE;
+    const svg = d3.create('svg')
+        .attr('width', width).attr('height', height).attr('viewBox', `0 0 ${width} ${height}`);
+    svg.append('style').text(ramaExportStyle());
+    svg.append('rect').attr('width', width).attr('height', height).attr('fill', '#fff');
+    drawRamachandran(svg, analyzeAngles(graphData).ramachandran, width);
+    return new XMLSerializer().serializeToString(svg.node());
+}
+
+async function ramachandranBlob(graphData, format) {
+    const svgText = ramachandranSvgText(graphData);
+    if (format === 'svg') return new Blob([svgText], { type: 'image/svg+xml' });
+    return rasterizeSvg(svgText, `image/${format}`, RAMA_EXPORT_SIZE);
+}
+
+// Ramachandran-Plot als Vektorgrafik im PDF (Achsen, Raster, Punkte je Klasse).
+function drawPdfRamachandran(doc, points, left, top, size, colors) {
+    const plotL = left + 12, plotR = left + size, plotT = top + 2, plotB = top + size - 10;
+    const x = d3.scaleLinear().domain([-180, 180]).range([plotL, plotR]);
+    const y = d3.scaleLinear().domain([-180, 180]).range([plotB, plotT]);
+    doc.setFont('helvetica', 'normal').setFontSize(7).setTextColor(...colors.MUTED);
+    doc.setDrawColor(242, 243, 245).setLineWidth(0.1);
+    d3.range(-180, 181, RAMA_MINOR_STEP).filter(t => t % RAMA_MAJOR_STEP !== 0).forEach(t => {
+        doc.line(x(t), plotT, x(t), plotB);
+        doc.line(plotL, y(t), plotR, y(t));
+    });
+    doc.setDrawColor(...colors.LINE).setLineWidth(0.15);
+    d3.range(-180, 181, RAMA_MAJOR_STEP).forEach(t => {
+        doc.line(x(t), plotT, x(t), plotB);
+        doc.line(plotL, y(t), plotR, y(t));
+        doc.text(`${t}°`, x(t), plotB + 4, { align: 'center' });
+        doc.text(`${t}°`, plotL - 1.5, y(t) + 1, { align: 'right' });
+    });
+    doc.setDrawColor(...colors.MUTED).setLineWidth(0.25).rect(plotL, plotT, plotR - plotL, plotB - plotT);
+    const order = cls => RAMA_CLASSES.indexOf(cls);
+    [...points].sort((a, b) => order(a.class) - order(b.class)).forEach(p => {
+        doc.setFillColor(...colors[p.class]);
+        doc.circle(x(p.phi), y(p.psi), 0.7, 'F');
+    });
+    doc.setFontSize(8);
+    doc.text(pdfText('φ'), (plotL + plotR) / 2, top + size - 1, { align: 'center' });
+    doc.text(pdfText('ψ'), left + 1, (plotT + plotB) / 2, { angle: 90 });
 }
 
 // ===== Abschnitt "Bindungen" =====
@@ -1613,8 +2048,8 @@ function histogramSvgText(edges) {
 }
 
 // SVG-Text als Rasterbild (`image/png` oder `image/jpeg`).
-async function rasterizeSvg(svgText, type) {
-    const { width, height } = HIST_EXPORT_SIZE;
+async function rasterizeSvg(svgText, type, size = HIST_EXPORT_SIZE) {
+    const { width, height } = size;
     const url = URL.createObjectURL(new Blob([svgText], { type: 'image/svg+xml' }));
     try {
         const img = new Image();
@@ -1668,10 +2103,8 @@ function renderDisulfides(graphData) {
     if (table.empty()) return;
     table.selectAll('*').remove();
     const bonds = disulfideBonds(graphData);
-    if (!bonds.length) {
-        table.append('tbody').append('tr').append('td').attr('class', 'text-body-secondary').text(gettext('Keine Disulfidbrücken'));
-        return;
-    }
+    d3.select('#stat-disulfides-block').property('hidden', !bonds.length);
+    if (!bonds.length) return;
     table.append('thead').append('tr').selectAll('th')
         .data([[gettext('Kette')], [gettext('Pos.')], [gettext('Länge (Å)'), true], [gettext('Herkunft')]])
         .join('th').attr('scope', 'col').attr('class', c => c[1] ? 'text-end' : null).text(c => c[0]);
@@ -1798,6 +2231,7 @@ function buildStatsExport(graphData, ensemble, modelLabel, filename) {
             elements: composition(nodes, n => n.element || '', describeElement),
             amino_acid_composition: composition(aminoAcids, r => r.name, describeAminoAcid),
         },
+        angles: anglesExport(graphData),
         elements_by_chain: byChain(nodes, n => n.element || '', describeElement, 'atoms'),
         amino_acids_by_chain: byChain(aminoAcids, r => r.name, describeAminoAcid, 'amino_acids'),
         bonds: {
@@ -1895,7 +2329,7 @@ function loadScript(src) {
 
 // Die PDF-Standardschriften kennen nur WinAnsi-Zeichen (kein Δ, kein Minuszeichen U+2212).
 // Auf Modulebene, da auch drawPdfHistogram sie braucht.
-const pdfText = v => String(v).replace(/Δ/g, 'Delta').replace(/−/g, '-');
+const pdfText = v => String(v).replace(/φ/g, 'phi').replace(/ψ/g, 'psi').replace(/ω/g, 'omega').replace(/Δ/g, 'Delta').replace(/−/g, '-');
 
 // PDF aus den Exportdaten: dieselben Abschnitte und Tabellen wie im Tab; die Liste der
 // einzelnen Bindungen je Atompaar steht nur im JSON (bei großen Proteinen Tausende Zeilen).
@@ -2055,7 +2489,7 @@ function buildStatsPdf(data) {
     }
     ensureSpace(8);
     doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...MUTED)
-        .text(pdfText(interpolate(gettext('Referenzwerte: %s (Rückgrat und CA–CB).'), [ref.source || ''])), M, y - 3);
+        .text(pdfText(interpolate(gettext('Referenzwerte: %s'), [ref.source || ''])), M, y - 3);
     y += 4;
     subTitle(gettext('Peptidbindungen'));
     const p = b.peptide_bonds;
@@ -2070,17 +2504,17 @@ function buildStatsPdf(data) {
         columnStyles: right([1, 2]),
         tableWidth: contentW * 0.6,
     });
-    subTitle(gettext('Disulfidbrücken'));
-    table({
-        head: [[gettext('Kette'), gettext('Pos.'), num(gettext('Länge (Å)')), gettext('Herkunft')]],
-        body: b.disulfides.length
-            ? b.disulfides.map(ss => {
+    if (b.disulfides.length) {
+        subTitle(gettext('Disulfidbrücken'));
+        table({
+            head: [[gettext('Kette'), gettext('Pos.'), num(gettext('Länge (Å)')), gettext('Herkunft')]],
+            body: b.disulfides.map(ss => {
                 const d = describeBond(ss.atoms.map(nodeLikeAtom));
                 return [d.chain, d.pos, num(formatLength(ss.length)), disulfideOrigin(ss.via)];
-            })
-            : [[{ content: gettext('Keine Disulfidbrücken'), colSpan: 4 }]],
-        tableWidth: contentW * 0.6,
-    });
+            }),
+            tableWidth: contentW * 0.6,
+        });
+    }
     subTitle(gettext('Kürzeste und längste Bindung'));
     const comparison = (value, length) => value === null || value === undefined ? '–'
         : `${formatLength(value)} (${formatDelta(length - value)})`;
@@ -2124,6 +2558,48 @@ function buildStatsPdf(data) {
     ensureSpace(8);
     doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...MUTED)
         .text(pdfText(gettext('Die einzelnen Bindungen je Atompaar sind im JSON-Export enthalten.')), M, y - 3);
+
+    // Winkel
+    const ang = data.angles;
+    const RAMA = { general: [13, 110, 253], gly: [240, 140, 0], pro: [47, 158, 68] };
+    sectionTitle(gettext('Winkel'));
+    subTitle(gettext('Ramachandran-Plot'), 100);
+    const ramaSize = 95;
+    ensureSpace(ramaSize + 4);
+    drawPdfRamachandran(doc, ang.ramachandran, M, y + 2, ramaSize, { MUTED, LINE, ...RAMA });
+    RAMA_CLASSES.forEach((cls, i) => {
+        const ly = y + 8 + i * 6;
+        doc.setFillColor(...RAMA[cls]).circle(M + ramaSize + 10, ly - 1, 1, 'F');
+        doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(...INK).text(pdfText(
+            `${ramaClassLabel(cls)} (${formatInt(ang.ramachandran.filter(p => p.class === cls).length)})`), M + ramaSize + 13, ly);
+    });
+    y += ramaSize + 9;
+    subTitle(gettext('cis- und trans-Peptidbindungen'));
+    table({
+        head: [[gettext('Peptidbindungen'), num('trans'), num('cis'), num(gettext('davon vor Prolin')), num(gettext('verdreht'))]],
+        body: [[formatInt(ang.omega.count), formatInt(ang.omega.trans), formatInt(ang.omega.cis),
+                formatInt(ang.omega.cis_before_proline), formatInt(ang.omega.twisted)]],
+        columnStyles: right([1, 2, 3, 4]),
+        tableWidth: contentW * 0.75,
+    });
+    if (ang.omega.non_trans.length) {
+        table({
+            head: [[gettext('Kette'), gettext('Pos.'), gettext('Aminosäuren'), num('ω'), gettext('Art')]],
+            body: ang.omega.non_trans.map(o => [o.to.chain || '–', `${o.from.position}–${o.to.position}`,
+                `${o.from.residue}–${o.to.residue}`, formatAngle(o.omega),
+                o.kind === 'cis' ? (o.to.residue === 'PRO' ? gettext('cis (vor Prolin)') : gettext('cis')) : gettext('verdreht')]),
+            columnStyles: right([3]),
+            tableWidth: contentW * 0.75,
+        });
+    }
+    subTitle(gettext('Bindungswinkel'));
+    const fixed1 = v => v === null ? '–' : v.toLocaleString(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    table({
+        head: [[gettext('Winkel'), num(gettext('Anzahl')), num(gettext('Durchschnitt (°)')), num(gettext('Std.-Abw. (°)')),
+                num(gettext('Min (°)')), num(gettext('Max (°)'))]],
+        body: ang.bond_angles.map(t => [t.angle, formatInt(t.count), fixed1(t.mean), fixed1(t.sd), fixed1(t.min), fixed1(t.max)]),
+        columnStyles: right([1, 2, 3, 4, 5]),
+    });
 
     // Fußzeile auf jeder Seite
     const pages = doc.getNumberOfPages();
@@ -2221,6 +2697,7 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
             renderStats(graphData);
             renderLegend(graphData.nodes);
             renderBondStats(graphData, bondEnsemble, loadedModelLabel);
+            renderAngles(canvas, graphData);
         } catch (err) {
             console.error('Model/Konformation konnte nicht geladen werden:', err);
         } finally {
@@ -2308,6 +2785,26 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
     renderStats(graphData);
     renderLegend(graphData.nodes);
     renderBondStats(graphData, bondEnsemble, modelLabel());
+    renderAngles(canvas, graphData);
+
+    const anglesExportBar = document.getElementById('angles-export');
+    if (anglesExportBar) {
+        anglesExportBar.querySelectorAll('[data-ramachandran-format]').forEach(button => {
+            button.addEventListener('click', async () => {
+                const format = button.dataset.ramachandranFormat;
+                button.disabled = true;
+                try {
+                    const extension = format === 'jpeg' ? 'jpg' : format;
+                    downloadBlob(await ramachandranBlob(graphData, format),
+                        `${exportBaseName(anglesExportBar.dataset.filename, loadedModelLabel, gettext('ramachandran'))}.${extension}`);
+                } catch (err) {
+                    console.error('Ramachandran-Plot konnte nicht exportiert werden:', err);
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        });
+    }
 
     // Tabellen-Scrollen aktualisiert die Hervorhebung in der Sequenzleiste (einmal pro Frame).
     let tableScrollPending = false;
