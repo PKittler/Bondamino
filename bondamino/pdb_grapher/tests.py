@@ -614,11 +614,34 @@ class ModifiedResidueTests(TestCase):
         self.assertEqual(self.sidechain(graph), MSE_SIDECHAIN)
         self.assertEqual((graph['residues'][0]['parent'], graph['residues'][0]['one_letter']), ('CYS', 'C'))
 
-    def test_ligands_stay_without_bonds(self):
-        lines = [het_line(1, 'C1', 'LIG', 0.0), het_line(2, 'C2', 'LIG', 1.5)]
+    def ligand_edges(self, lines):
         graph = build_graph(parse_pdb(self.write_pdb(lines)))
-        self.assertEqual(graph['edges'], [])
+        return graph, [(e['source'], e['target'], e['type'], e['ref']) for e in graph['edges']]
+
+    def test_ligand_bonds_by_distance(self):
+        # C1–C2 gebunden, C3 zu weit entfernt; Liganden haben keine Referenzwerte
+        lines = [het_line(1, 'C1', 'LIG', 0.0), het_line(2, 'C2', 'LIG', 1.5), het_line(3, 'C3', 'LIG', 5.0)]
+        graph, edges = self.ligand_edges(lines)
+        self.assertEqual(edges, [('A_1_C1', 'A_1_C2', 'ligand', None)])
         self.assertIsNone(graph['residues'][0]['parent'])
+
+    def test_ligand_bonds_from_conect_include_metal(self):
+        # Fe–N mit 2,0 Å: über CONECT, und auch über den Kovalenzradius von Eisen
+        lines = [het_line(1, 'FE', 'HEM', 0.0, element='FE'), het_line(2, 'NA', 'HEM', 2.0, element='N')]
+        self.assertEqual(self.ligand_edges(lines)[1], [('A_1_FE', 'A_1_NA', 'ligand', None)])
+        conect = ['CONECT    1    2\n', 'CONECT    2    1\n']
+        far = [het_line(1, 'FE', 'HEM', 0.0, element='FE'), het_line(2, 'NA', 'HEM', 2.6, element='N')]
+        self.assertEqual(self.ligand_edges(far + conect)[1], [('A_1_FE', 'A_1_NA', 'ligand', None)])
+
+    def test_ligand_atoms_named_like_backbone_get_no_backbone_bonds(self):
+        # Acetyl-Kappe ACE hat C und O, aber kein Rückgrat: C–O nur einmal, als Ligandenbindung
+        lines = [het_line(1, 'C', 'ACE', 0.0), het_line(2, 'O', 'ACE', 1.23, element='O'), het_line(3, 'CH3', 'ACE', -1.5)]
+        self.assertEqual(sorted(self.ligand_edges(lines)[1]),
+                         [('A_1_C', 'A_1_CH3', 'ligand', None), ('A_1_C', 'A_1_O', 'ligand', None)])
+
+    def test_water_and_ions_have_no_bonds(self):
+        lines = [het_line(1, 'O', 'HOH', 0.0, element='O'), het_line(2, 'MG', ' MG', 1.0, element='MG')]
+        self.assertEqual(self.ligand_edges(lines)[1], [])
 
 
 HEADER_LINES = [
