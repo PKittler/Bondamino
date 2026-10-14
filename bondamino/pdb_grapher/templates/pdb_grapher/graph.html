@@ -604,7 +604,7 @@
     </div>
 </div>
 
-<script id="graph-data" type="application/json">{{ graph_data|safe }}</script>
+{{ graph_data|json_script:"graph-data" }}
 {{ bond_ensemble|json_script:"bond-ensemble" }}
 {{ structure_info|json_script:"structure-info" }}
 <script src="{% static_v 'pdb_grapher/vendor/d3/d3.min.js' %}"></script>

@@ -1,4 +1,4 @@
-import json
+import logging
 
 from django.conf import settings
 from django.contrib import messages
@@ -22,6 +22,8 @@ from .utils import (
     RAMACHANDRAN_SOURCE, REFERENCE_SOURCES, build_average_graph, build_bond_ensemble, build_graph, list_altlocs, list_models,
     parse_header, parse_pdb,
 )
+
+logger = logging.getLogger(__name__)
 
 AVERAGE_MODEL = 'avg'  # Pseudo-Model: Mittelwert der Bindungslängen über alle Models
 
@@ -61,9 +63,11 @@ def index(request):
             try:
                 models = list_models(pdb.file.path)
                 parse_pdb(pdb.file.path, model_id=models[0] if models else None)
-            except Exception as e:
+            except Exception:
+                # Details nur ins Server-Log, nicht an den User
+                logger.exception('Could not process uploaded file %s', pdb.name)
                 pdb.delete()
-                form.add_error('pdb_file', _('Fehler beim Verarbeiten der Datei: %(error)s') % {'error': e})
+                form.add_error('pdb_file', _('Die Datei konnte nicht verarbeitet werden.'))
             else:
                 return redirect('pdb_grapher:detail', pk=pdb.pk)
 
@@ -221,13 +225,13 @@ def detail(request, pk):
         selected_model = models[0] if models else None
         graph_data = build_graph(parse_pdb(file_path, model_id=selected_model))
         bond_ensemble = build_bond_ensemble(file_path, models)
-    except Exception as e:
-        messages.error(request, _('Fehler beim Verarbeiten der Datei „%(name)s“: %(error)s')
-                       % {'name': pdb.name, 'error': e})
+    except Exception:
+        logger.exception('Could not process file %s (pk %s)', pdb.name, pdb.pk)
+        messages.error(request, _('Die Datei „%(name)s“ konnte nicht verarbeitet werden.') % {'name': pdb.name})
         return redirect('pdb_grapher:index')
     return render(request, 'pdb_grapher/graph.html', {
         'pdb': pdb,
-        'graph_data': json.dumps(graph_data),
+        'graph_data': graph_data,
         'filename': pdb.name,
         'models': models,
         'selected_model': selected_model,
@@ -278,8 +282,9 @@ def model_data(request, pk):
         data = {'graph': graph_data}
         if request.GET.get('ensemble'):
             data['ensemble'] = build_bond_ensemble(file_path, models, altloc=altloc)
-    except Exception as e:
-        return JsonResponse({'error': _('Fehler beim Verarbeiten der Datei: %(error)s') % {'error': e}}, status=400)
+    except Exception:
+        logger.exception('Could not process file pk %s (model %s, altloc %s)', pk, model_param, altloc)
+        return JsonResponse({'error': _('Die Datei konnte nicht verarbeitet werden.')}, status=400)
 
     return JsonResponse(data)
 

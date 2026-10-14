@@ -27,6 +27,7 @@ until python manage.py migrate --noinput; do
     attempt=$((attempt + 1))
     sleep 2
 done
+python manage.py createcachetable
 
 # Erster Administrator aus DJANGO_SUPERUSER_USERNAME/_EMAIL/_PASSWORD, falls noch keiner existiert
 if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && [ -n "$DJANGO_SUPERUSER_PASSWORD" ]; then

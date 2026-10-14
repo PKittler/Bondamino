@@ -3,8 +3,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Bondamino\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-14 12:02+0000\n"
-"PO-Revision-Date: 2026-10-14 12:02+0000\n"
+"POT-Creation-Date: 2026-10-14 20:32+0000\n"
+"PO-Revision-Date: 2026-10-14 20:32+0000\n"
 "Last-Translator: \n"
 "Language-Team: English (United Kingdom)\n"
 "Language: en_GB\n"
@@ -17,7 +17,7 @@ msgstr ""
 msgid "Arbeitsgruppe"
 msgstr "Working group"
 
-#: admin.py:54 forms.py:99 forms.py:194 models.py:68 models.py:96
+#: admin.py:54 forms.py:141 forms.py:236 models.py:68 models.py:96
 #: templates/pdb_grapher/account.html:20
 msgid "Arbeitsgruppen"
 msgstr "Working groups"
@@ -26,22 +26,22 @@ msgstr "Working groups"
 msgid "Mitglieder"
 msgstr "Members"
 
-#: admin.py:85
+#: admin.py:89
 msgid "Passwort festgelegt"
 msgstr "Password set"
 
-#: admin.py:105
+#: admin.py:109
 msgid "Einladung erneut senden"
 msgstr "Resend invitation"
 
-#: admin.py:110
+#: admin.py:114
 #, python-format
 msgid "%(count)d Einladung wurde gesendet."
 msgid_plural "%(count)d Einladungen wurden gesendet."
 msgstr[0] "%(count)d invitation has been sent."
 msgstr[1] "%(count)d invitations have been sent."
 
-#: admin.py:115
+#: admin.py:119
 #, python-format
 msgid ""
 "%(count)d User hat bereits ein Passwort, keine E-Mail-Adresse oder ist "
@@ -55,44 +55,52 @@ msgstr[1] ""
 "%(count)d users already have a password, have no email address or are "
 "inactive."
 
-#: admin.py:93
+#: admin.py:97
 #, python-format
 msgid "Die Einladung an %(email)s konnte nicht gesendet werden: %(error)s"
 msgstr "The invitation to %(email)s could not be sent: %(error)s"
 
-#: admin.py:103
+#: admin.py:107
 #, python-format
 msgid "Die Einladung wurde an %(email)s gesendet."
 msgstr "The invitation has been sent to %(email)s."
 
-#: forms.py:74 models.py:10 models.py:17 models.py:36
-#: templates/pdb_grapher/base.html:38 templates/pdb_grapher/base.html:78
+#: forms.py:116 models.py:10 models.py:17 models.py:36
+#: templates/pdb_grapher/base.html:37 templates/pdb_grapher/base.html:77
 msgid "Sprache"
 msgstr "Language"
 
-#: forms.py:95
+#: forms.py:137
 msgid "Für mich persönlich"
 msgstr "For me personally"
 
-#: forms.py:127 models.py:102 models.py:132
+#: forms.py:169 models.py:102 models.py:132
 msgid "PDB-Datei"
 msgstr "PDB file"
 
-#: forms.py:128
+#: forms.py:170
 msgid "Unterstützt .pdb Dateien"
 msgstr "Supports .pdb files"
 
-#: forms.py:131
+#: forms.py:173
 msgid "PDB-ID"
 msgstr "PDB ID"
 
-#: forms.py:189 templates/pdb_grapher/index.html:54
+#: forms.py:231 templates/pdb_grapher/index.html:54
 #: templates/pdb_grapher/_note_visibility_fields.html:3
 #: templates/pdb_grapher/_note_visibility_fields.html:5
 msgid "Sichtbar für"
 msgstr "Visible to"
 
-#: forms.py:117
+#: forms.py:38
+#, python-format
+msgid ""
+"Zu viele fehlgeschlagene Anmeldeversuche. Bitte versuche es in %(minutes)d "
+"Minuten erneut."
+msgstr ""
+"Too many failed sign-in attempts. Please try again in %(minutes)d minutes."
+
+#: forms.py:159
 msgid ""
 "Die Datei muss für dich persönlich oder für mindestens eine Arbeitsgruppe "
 "verfügbar sein. Um sie zu entfernen, lösche sie."
@@ -100,40 +108,40 @@ msgstr ""
 "The file must be available to you personally or to at least one working "
 "group. To remove it, delete it."
 
-#: forms.py:146
+#: forms.py:188
 msgid "Nur .pdb Dateien sind erlaubt."
 msgstr "Only .pdb files are allowed."
 
-#: forms.py:148
+#: forms.py:190
 msgid "Datei darf maximal 20 MB groß sein."
 msgstr "The file must not be larger than 20 MB."
 
-#: forms.py:166
+#: forms.py:208
 msgid ""
 "Bitte entweder eine Datei auswählen oder eine PDB-ID eingeben, nicht beides."
 msgstr "Please either choose a file or enter a PDB ID, not both."
 
-#: forms.py:168
+#: forms.py:210
 msgid "Bitte eine Datei auswählen oder eine PDB-ID eingeben."
 msgstr "Please choose a file or enter a PDB ID."
 
-#: forms.py:190 templates/pdb_grapher/graph.html:590
+#: forms.py:232 templates/pdb_grapher/graph.html:590
 msgid "Nur für mich"
 msgstr "Only me"
 
-#: forms.py:190
+#: forms.py:232
 msgid "Für Arbeitsgruppen"
 msgstr "Working groups"
 
-#: forms.py:222
+#: forms.py:264
 msgid "Wähle mindestens eine Arbeitsgruppe aus, die die Anmerkung lesen darf."
 msgstr "Select at least one working group that may read the note."
 
-#: forms.py:133
+#: forms.py:175
 msgid "z. B. 1LYZ"
 msgstr "e.g. 1LYZ"
 
-#: forms.py:204
+#: forms.py:246
 msgid "Anmerkung schreiben …"
 msgstr "Write a note …"
 
@@ -145,7 +153,7 @@ msgstr "Display name"
 msgid "Sprachen"
 msgstr "Languages"
 
-#: models.py:37 templates/pdb_grapher/base.html:52
+#: models.py:37 templates/pdb_grapher/base.html:51
 #: templates/pdb_grapher/graph.html:87
 msgid "Darstellung"
 msgstr "Display"
@@ -210,11 +218,11 @@ msgstr ""
 "Name shown in the language selector, written in the language itself, e.g. "
 "“Deutsch”."
 
-#: models.py:30 templates/pdb_grapher/base.html:57
+#: models.py:30 templates/pdb_grapher/base.html:56
 msgid "Hell"
 msgstr "Light"
 
-#: models.py:30 templates/pdb_grapher/base.html:60
+#: models.py:30 templates/pdb_grapher/base.html:59
 msgid "Dunkel"
 msgstr "Dark"
 
@@ -265,81 +273,81 @@ msgstr "RCSB refused the download of %(id)s (HTTP %(code)s)."
 msgid "Für %(id)s gibt es bei RCSB keine Datei im PDB-Format."
 msgstr "RCSB has no file in PDB format for %(id)s."
 
-#: views.py:34
+#: views.py:36
 msgid "Röntgenkristallographie"
 msgstr "X-ray crystallography"
 
-#: views.py:35
+#: views.py:37
 msgid "Neutronenbeugung"
 msgstr "Neutron diffraction"
 
-#: views.py:36
+#: views.py:38
 msgid "Elektronenkristallographie"
 msgstr "Electron crystallography"
 
-#: views.py:37
+#: views.py:39
 msgid "Elektronenmikroskopie"
 msgstr "Electron microscopy"
 
-#: views.py:38
+#: views.py:40
 msgid "NMR (Lösung)"
 msgstr "Solution NMR"
 
-#: views.py:39
+#: views.py:41
 msgid "Festkörper-NMR"
 msgstr "Solid-state NMR"
 
-#: views.py:173
+#: views.py:177
 msgid "Dein Passwort wurde gespeichert."
 msgstr "Your password has been saved."
 
-#: views.py:195
+#: views.py:199
 msgid "Das Passwort wurde geändert."
 msgstr "Your password has been changed."
 
-#: views.py:201
+#: views.py:205
 msgid "Die Einstellungen wurden gespeichert."
 msgstr "Your settings have been saved."
 
-#: views.py:339
+#: views.py:344
 msgid "Nur der Verfasser darf die Anmerkung bearbeiten."
 msgstr "Only the author may edit the note."
 
-#: views.py:357
+#: views.py:362
 msgid "Nur der Verfasser darf die Anmerkung löschen."
 msgstr "Only the author may delete the note."
 
-#: views.py:371
+#: views.py:376
 msgid "Nur der Gruppenleiter darf Anmerkungen aus der Gruppe entfernen."
 msgstr "Only the group leader may remove notes from the group."
 
-#: views.py:384
+#: views.py:389
 msgid "Nur der Uploader darf die Verfügbarkeit bearbeiten."
 msgstr "Only the uploader may edit the availability."
 
-#: views.py:399
+#: views.py:404
 msgid "Nur der Uploader darf die Datei löschen."
 msgstr "Only the uploader may delete the file."
 
-#: views.py:401
+#: views.py:406
 #, python-format
 msgid "„%(name)s“ wurde gelöscht."
 msgstr "“%(name)s” has been deleted."
 
-#: views.py:412
+#: views.py:417
 msgid "Nur der Gruppenleiter darf Dateien aus der Gruppe entfernen."
 msgstr "Only the group leader may remove files from the group."
 
-#: views.py:258
+#: views.py:262
 msgid "Ungültige Konformation."
 msgstr "Invalid conformation."
 
-#: views.py:388
+#: views.py:393
 #, python-format
 msgid "Verfügbarkeit von „%(name)s“ gespeichert."
 msgstr "Availability of “%(name)s” saved."
 
-#: views.py:418
+#: views.py:423
 #, python-format
 msgid ""
 "„%(name)s“ wurde aus „%(group)s“ entfernt und gelöscht, da sie nirgends mehr "
@@ -348,32 +356,31 @@ msgstr ""
 "“%(name)s” has been removed from “%(group)s” and deleted, as it was no longer"
 " available anywhere."
 
-#: views.py:421
+#: views.py:426
 #, python-format
 msgid "„%(name)s“ wurde aus „%(group)s“ entfernt."
 msgstr "“%(name)s” has been removed from “%(group)s”."
 
-#: views.py:225
+#: views.py:230
 #, python-format
-msgid "Fehler beim Verarbeiten der Datei „%(name)s“: %(error)s"
-msgstr "Error processing the file “%(name)s”: %(error)s"
+msgid "Die Datei „%(name)s“ konnte nicht verarbeitet werden."
+msgstr "The file “%(name)s” could not be processed."
 
-#: views.py:282 views.py:66
-#, python-format
-msgid "Fehler beim Verarbeiten der Datei: %(error)s"
-msgstr "Error processing the file: %(error)s"
+#: views.py:287 views.py:70
+msgid "Die Datei konnte nicht verarbeitet werden."
+msgstr "The file could not be processed."
 
-#: views.py:269
+#: views.py:273
 msgid "Ungültiges Model."
 msgstr "Invalid model."
 
 #: templates/pdb_grapher/account.html:4 templates/pdb_grapher/account.html:8
-#: templates/pdb_grapher/base.html:35
+#: templates/pdb_grapher/base.html:34
 msgid "Konto"
 msgstr "Account"
 
-#: templates/pdb_grapher/account.html:12 templates/pdb_grapher/base.html:25
-#: templates/pdb_grapher/base.html:25
+#: templates/pdb_grapher/account.html:12 templates/pdb_grapher/base.html:24
+#: templates/pdb_grapher/base.html:24
 msgid "Benutzerkonto"
 msgstr "User account"
 
@@ -396,15 +403,15 @@ msgstr "Change password"
 msgid "Speichern"
 msgstr "Save"
 
-#: templates/pdb_grapher/base.html:66
+#: templates/pdb_grapher/base.html:65
 msgid "Abmelden"
 msgstr "Log out"
 
-#: templates/pdb_grapher/base.html:71 templates/pdb_grapher/base.html:71
+#: templates/pdb_grapher/base.html:70 templates/pdb_grapher/base.html:70
 msgid "Dark Mode umschalten"
 msgstr "Toggle dark mode"
 
-#: templates/pdb_grapher/base.html:94 templates/pdb_grapher/index.html:106
+#: templates/pdb_grapher/base.html:93 templates/pdb_grapher/index.html:106
 msgid "Schließen"
 msgstr "Close"
 

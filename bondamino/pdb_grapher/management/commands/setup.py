@@ -219,6 +219,7 @@ class Command(BaseCommand):
     def finish(self):
         self.section('Preparing the database')
         call_command('migrate', interactive=False)
+        call_command('createcachetable')
         call_command('collectstatic', interactive=False, verbosity=0)
         self.stdout.write(self.style.SUCCESS('Static files collected.'))
         if not get_user_model().objects.filter(is_superuser=True).exists():

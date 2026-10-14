@@ -11,14 +11,17 @@ from unittest import mock
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import DatabaseError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from bondamino.config import env, env_bool, env_list, parse_database_url, read_env_file
 
+from . import throttle
 from .models import Language, Note, PDBFile, UserSettings, WorkGroup
 from .utils import (
     SIDECHAIN_BOND_REFERENCES, SIDECHAIN_BONDS, build_average_graph, build_bond_ensemble, build_graph, list_altlocs,
@@ -658,6 +661,110 @@ class PasswordResetTests(BaseTestCase):
         self.assertContains(response, 'is-invalid')
         self.member.refresh_from_db()
         self.assertTrue(self.member.check_password('pw'))
+
+
+class ThrottleTests(BaseTestCase):
+    def login(self, username='member', password='falsch', ip='10.0.0.1', url=None, **extra):
+        return self.client.post(url or reverse('login'), {'username': username, 'password': password},
+                                REMOTE_ADDR=ip, **extra)
+
+    def test_login_locked_after_failures(self):
+        for _ in range(throttle.LOGIN_FAILURES_PER_USER):
+            self.assertContains(self.login(), 'Bitte Benutzername und Passwort eingeben')
+        # Danach auch mit richtigem Passwort gesperrt, von einer anderen Adresse aber nicht
+        self.assertContains(self.login(password='pw'), 'Zu viele fehlgeschlagene Anmeldeversuche')
+        self.assertNotIn('_auth_user_id', self.client.session)
+        self.assertRedirects(self.login(password='pw', ip='10.0.0.2'), reverse('pdb_grapher:index'))
+
+    def test_success_resets_counter(self):
+        for _ in range(throttle.LOGIN_FAILURES_PER_USER - 1):
+            self.login()
+        self.assertRedirects(self.login(password='pw'), reverse('pdb_grapher:index'))
+        self.client.logout()
+        self.login()
+        self.assertRedirects(self.login(password='pw'), reverse('pdb_grapher:index'))
+
+    def test_lock_expires(self):
+        for _ in range(throttle.LOGIN_FAILURES_PER_USER):
+            self.login()
+        cache.clear()  # wie nach Ablauf der Sperrzeit
+        self.assertRedirects(self.login(password='pw'), reverse('pdb_grapher:index'))
+
+    def test_failures_per_ip_across_usernames(self):
+        for i in range(throttle.LOGIN_FAILURES_PER_IP):
+            self.login(username=f'user{i}')
+        self.assertContains(self.login(password='pw'), 'Zu viele fehlgeschlagene Anmeldeversuche')
+
+    def test_admin_login_throttled(self):
+        self.member.is_staff = True
+        self.member.save()
+        url = reverse('admin:login')
+        for _ in range(throttle.LOGIN_FAILURES_PER_USER):
+            self.login(url=url)
+        self.assertContains(self.login(password='pw', url=url), 'Zu viele fehlgeschlagene Anmeldeversuche')
+
+    def test_forwarded_for_only_behind_proxy(self):
+        for i in range(throttle.LOGIN_FAILURES_PER_USER):
+            # Ohne HTTPS=1 wird X-Forwarded-For ignoriert (sonst könnte jeder die Adresse fälschen)
+            self.login(HTTP_X_FORWARDED_FOR=f'192.0.2.{i}')
+        self.assertContains(self.login(password='pw'), 'Zu viele fehlgeschlagene Anmeldeversuche')
+        with override_settings(HTTPS=True):
+            # Hinter dem Proxy zählt der letzte, vom Proxy angehängte Eintrag
+            self.assertRedirects(self.login(password='pw', HTTP_X_FORWARDED_FOR='10.0.0.1, 192.0.2.7', secure=True),
+                                 reverse('pdb_grapher:index'))
+
+    def test_missing_cache_table_does_not_block_login(self):
+        with mock.patch('pdb_grapher.throttle.cache.get', side_effect=DatabaseError), \
+                mock.patch('pdb_grapher.throttle.cache.add', side_effect=DatabaseError), \
+                self.assertLogs('pdb_grapher.throttle', 'ERROR'):
+            self.assertRedirects(self.login(password='pw'), reverse('pdb_grapher:index'))
+
+    def test_password_reset_limited_per_email(self):
+        self.member.email = 'member@example.org'
+        self.member.save()
+        with self.assertLogs('pdb_grapher.forms', 'WARNING'):
+            for _ in range(throttle.RESET_REQUESTS_PER_EMAIL + 2):
+                response = self.client.post(reverse('pdb_grapher:password_reset'), {'email': 'member@example.org'})
+                # Immer dieselbe Antwort, damit nichts über das Konto verraten wird
+                self.assertRedirects(response, reverse('pdb_grapher:password_reset_done'))
+        self.assertEqual(len(mail.outbox), throttle.RESET_REQUESTS_PER_EMAIL)
+
+    def test_password_reset_limited_per_ip(self):
+        self.member.email = 'member@example.org'
+        self.member.save()
+        for i in range(throttle.RESET_REQUESTS_PER_IP):
+            self.client.post(reverse('pdb_grapher:password_reset'), {'email': f'x{i}@example.org'})
+        with self.assertLogs('pdb_grapher.forms', 'WARNING'):
+            self.client.post(reverse('pdb_grapher:password_reset'), {'email': 'member@example.org'})
+        self.assertEqual(mail.outbox, [])
+
+
+class OutputSafetyTests(BaseTestCase):
+    def test_graph_data_cannot_break_out_of_script(self):
+        # Atomname "<!--" (vier Zeichen, Spalten 13–16) würde einen <script>-Block durcheinanderbringen
+        content = (atom_line(1, 'N', 1, 0.0) + atom_line(2, 'CA', 1, 1.46)
+                   + f"ATOM  {3:5d} <!-- ALA A   1    {2.0:8.3f}{0:8.3f}{0:8.3f}  1.00  0.00           C\n"
+                   + atom_line(4, 'C', 1, 2.98)).encode()
+        pdb = PDBFile(name='x.pdb', uploaded_by=self.uploader, personal=True)
+        pdb.file.save('x.pdb', ContentFile(content), save=False)
+        pdb.save()
+        self.client.force_login(self.uploader)
+        html = self.client.get(reverse('pdb_grapher:detail', args=[pdb.pk])).content.decode()
+        script = re.search(r'<script id="graph-data" type="application/json">(.*?)</script>', html, re.S).group(1)
+        self.assertNotIn('<', script)
+        self.assertIn('\\u003C!--', script)
+
+    def test_processing_error_details_not_shown(self):
+        pdb = self.make_pdb(personal=True)
+        self.client.force_login(self.uploader)
+        with mock.patch('pdb_grapher.views.parse_pdb', side_effect=OSError('/srv/geheim/pfad')), \
+                self.assertLogs('pdb_grapher.views', 'ERROR'):
+            detail = self.client.get(reverse('pdb_grapher:detail', args=[pdb.pk]), follow=True)
+            data = self.client.get(reverse('pdb_grapher:model_data', args=[pdb.pk]))
+        self.assertContains(detail, 'konnte nicht verarbeitet werden')
+        self.assertNotContains(detail, '/srv/geheim')
+        self.assertEqual(data.status_code, 400)
+        self.assertNotIn('/srv/geheim', data.json()['error'])
 
 
 class ConfigTests(TestCase):
