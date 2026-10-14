@@ -3,19 +3,20 @@ import json
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
 from django.db import transaction
 from django.db.models import OuterRef, Q, Subquery
 from django.http import FileResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_POST
 
-from .forms import AvailabilityForm, NoteForm, PDBUploadForm, UserSettingsForm
+from .forms import AvailabilityForm, NoteForm, PasswordResetForm, PDBUploadForm, UserSettingsForm
 from .models import Language, Note, PDBFile, UserSettings, WorkGroup
 from .utils import (
     RAMACHANDRAN_SOURCE, REFERENCE_SOURCES, build_average_graph, build_bond_ensemble, build_graph, list_altlocs, list_models,
@@ -136,6 +137,44 @@ def set_theme(request):
     if request.headers.get('X-Requested-With') == 'fetch':
         return JsonResponse({'theme': UserSettings.of(request.user).theme})
     return redirect(_safe_next(request))
+
+
+class PasswordResetView(auth_views.PasswordResetView):
+    """Passwort vergessen: Link per E-Mail (auch für User, die ihre Einladung nicht angenommen haben)."""
+    form_class = PasswordResetForm
+    template_name = 'pdb_grapher/password_reset_form.html'
+    subject_template_name = 'pdb_grapher/email/password_reset_subject.txt'
+    email_template_name = 'pdb_grapher/email/password_reset_email.txt'
+    success_url = reverse_lazy('pdb_grapher:password_reset_done')
+    extra_email_context = {'valid_hours': settings.PASSWORD_RESET_TIMEOUT // 3600}
+
+
+class PasswordResetDoneView(auth_views.PasswordResetDoneView):
+    template_name = 'pdb_grapher/password_reset_done.html'
+    extra_context = {'valid_hours': settings.PASSWORD_RESET_TIMEOUT // 3600}
+
+
+class SetPasswordView(auth_views.PasswordResetConfirmView):
+    """Passwort über den Link aus der Einladung (`invitation`) oder aus "Passwort vergessen"
+    festlegen; danach ist der User angemeldet. Der Link gilt nur einmal."""
+    template_name = 'pdb_grapher/password_set.html'
+    post_reset_login = True
+    success_url = reverse_lazy('pdb_grapher:index')
+    invitation = False
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        for field in form.fields.values():
+            field.widget.attrs['class'] = 'form-control'
+        return form
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, _('Dein Passwort wurde gespeichert.'))
+        return response
+
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(invitation=self.invitation, **kwargs)
 
 
 @login_required

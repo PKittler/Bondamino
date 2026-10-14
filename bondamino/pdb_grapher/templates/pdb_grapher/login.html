@@ -24,7 +24,10 @@
                            value="{{ form.username.value|default:'' }}" autocomplete="username" autofocus required>
                 </div>
                 <div class="mb-4">
-                    <label class="form-label" for="{{ form.password.id_for_label }}">{% translate 'Passwort' %}</label>
+                    <div class="d-flex justify-content-between align-items-baseline">
+                        <label class="form-label" for="{{ form.password.id_for_label }}">{% translate 'Passwort' %}</label>
+                        <a href="{% url 'pdb_grapher:password_reset' %}" class="small">{% translate 'Passwort vergessen?' %}</a>
+                    </div>
                     <input type="password" class="form-control" name="{{ form.password.html_name }}" id="{{ form.password.id_for_label }}"
                            autocomplete="current-password" required>
                 </div>

@@ -1,4 +1,6 @@
+import datetime
 import math
+import re
 import os
 import shutil
 import tempfile
@@ -7,6 +9,7 @@ from unittest import mock
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -527,6 +530,130 @@ class AccountTests(BaseTestCase):
         self.client.logout()
         self.client.post(reverse('pdb_grapher:set_theme'), {'theme': 'dark'})
         self.assertFalse(UserSettings.objects.exists())
+
+
+def mail_link(message):
+    """Pfad des Links in einer E-Mail."""
+    return re.search(r'https?://[^/\s]+(/\S+)', message.body).group(1)
+
+
+class InvitationTests(BaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.admin_user = User.objects.create_superuser('admin', 'admin@example.org', 'pw')
+        self.client.login(username='admin', password='pw')
+
+    def add_user(self, **data):
+        fields = {'username': 'neu', 'email': 'neu@example.org', 'first_name': 'Neue', 'last_name': 'Person',
+                  'WorkGroup_members-TOTAL_FORMS': '1', 'WorkGroup_members-INITIAL_FORMS': '0',
+                  'WorkGroup_members-0-workgroup': self.group_a.pk, **data}
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(reverse('admin:auth_user_add'), fields)
+
+    def test_admin_creates_user_without_password_and_sends_invitation(self):
+        response = self.add_user()
+        self.assertEqual(response.status_code, 302)
+        user = User.objects.get(username='neu')
+        self.assertFalse(user.has_usable_password())
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertEqual(message.to, ['neu@example.org'])
+        self.assertIn('Neue Person', message.body)
+        self.assertIn('24 Stunden', message.body)
+        self.assertTrue(mail_link(message).startswith('/invitation/'))
+        self.assertIn(user, self.group_a.members.all())
+
+    def test_email_is_required(self):
+        self.add_user(email='')
+        self.assertFalse(User.objects.filter(username='neu').exists())
+        self.assertEqual(mail.outbox, [])
+
+    def test_no_login_before_password_is_set(self):
+        self.add_user()
+        self.client.logout()
+        self.assertFalse(self.client.login(username='neu', password=''))
+
+    def test_link_sets_password_and_logs_in(self):
+        self.add_user()
+        self.client.logout()
+        response = self.client.get(mail_link(mail.outbox[0]), follow=True)
+        self.assertContains(response, 'Passwort festlegen')
+        set_url = response.redirect_chain[-1][0]
+        response = self.client.post(set_url, {'new_password1': 'Bondamino-2026!', 'new_password2': 'Bondamino-2026!'})
+        self.assertRedirects(response, reverse('pdb_grapher:index'))
+        self.assertTrue(User.objects.get(username='neu').check_password('Bondamino-2026!'))
+        self.assertEqual(self.client.get(reverse('pdb_grapher:account')).status_code, 200)
+        # Der Link gilt nur einmal
+        self.client.logout()
+        self.assertContains(self.client.get(mail_link(mail.outbox[0]), follow=True), 'ungültig oder abgelaufen')
+
+    def test_link_expires_after_24_hours(self):
+        self.add_user()
+        self.client.logout()
+        later = datetime.datetime.now() + datetime.timedelta(hours=24, minutes=1)
+        with mock.patch('django.contrib.auth.tokens.PasswordResetTokenGenerator._now', return_value=later):
+            response = self.client.get(mail_link(mail.outbox[0]), follow=True)
+        self.assertContains(response, 'ungültig oder abgelaufen')
+
+    def test_resend_invitation_only_without_password(self):
+        self.add_user()
+        mail.outbox.clear()
+        ids = [User.objects.get(username='neu').pk, self.member.pk]
+        self.client.post(reverse('admin:auth_user_changelist'),
+                         {'action': 'resend_invitation', '_selected_action': ids})
+        self.assertEqual([m.to for m in mail.outbox], [['neu@example.org']])
+
+
+class PasswordResetTests(BaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.member.email = 'member@example.org'
+        self.member.save()
+
+    def request_link(self, email):
+        return self.client.post(reverse('pdb_grapher:password_reset'), {'email': email})
+
+    def test_login_page_links_to_reset(self):
+        self.assertContains(self.client.get(reverse('login')), reverse('pdb_grapher:password_reset'))
+
+    def test_reset_password(self):
+        response = self.request_link('MEMBER@example.org')
+        self.assertRedirects(response, reverse('pdb_grapher:password_reset_done'))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('member', mail.outbox[0].body)
+        response = self.client.get(mail_link(mail.outbox[0]), follow=True)
+        self.assertContains(response, 'Neues Passwort')
+        response = self.client.post(response.redirect_chain[-1][0],
+                                    {'new_password1': 'Bondamino-2026!', 'new_password2': 'Bondamino-2026!'})
+        self.assertRedirects(response, reverse('pdb_grapher:index'))
+        self.member.refresh_from_db()
+        self.assertTrue(self.member.check_password('Bondamino-2026!'))
+
+    def test_unknown_email_sends_nothing_but_same_page(self):
+        response = self.request_link('niemand@example.org')
+        self.assertRedirects(response, reverse('pdb_grapher:password_reset_done'))
+        self.assertEqual(mail.outbox, [])
+
+    def test_works_for_user_without_password(self):
+        self.member.set_unusable_password()
+        self.member.save()
+        self.request_link('member@example.org')
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_inactive_user_gets_no_mail(self):
+        self.member.is_active = False
+        self.member.save()
+        self.request_link('member@example.org')
+        self.assertEqual(mail.outbox, [])
+
+    def test_mismatched_passwords(self):
+        self.request_link('member@example.org')
+        response = self.client.get(mail_link(mail.outbox[0]), follow=True)
+        response = self.client.post(response.redirect_chain[-1][0],
+                                    {'new_password1': 'Bondamino-2026!', 'new_password2': 'anders'})
+        self.assertContains(response, 'is-invalid')
+        self.member.refresh_from_db()
+        self.assertTrue(self.member.check_password('pw'))
 
 
 def atom_line(serial, name, res_seq, x):
