@@ -2556,7 +2556,8 @@ const pdfText = v => String(v).replace(/φ/g, 'phi').replace(/ψ/g, 'psi').repla
 
 // PDF aus den Exportdaten: dieselben Abschnitte und Tabellen wie im Tab; die Liste der
 // einzelnen Bindungen je Atompaar steht nur im JSON (bei großen Proteinen Tausende Zeilen).
-function buildStatsPdf(data) {
+// options.bondList: einzelne Bindungen je Atompaar ausgeben (viele Seiten bei großen Strukturen)
+function buildStatsPdf(data, options = {}) {
     const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
     const M = 15;
     const pageW = doc.internal.pageSize.getWidth();
@@ -2792,24 +2793,26 @@ function buildStatsPdf(data) {
         },
     });
     // Einzelne Bindungen je Atompaar (wie aufgeklappt im Tab); kürzeste und längste farbig markiert
-    subTitle(gettext('Einzelne Bindungen je Atompaar'));
-    table({
-        head: [[num(gettext('Länge (Å)')), num(gettext('Abw. vom Ø (Å)')), gettext('Kette'), gettext('Pos.'),
-                gettext('Atom-Nr.'), gettext('Aminosäure'), '']],
-        body: b.by_atoms.flatMap(grp => [
-            [{ content: `${grp.atoms.join('–')} (${formatInt(grp.count)})`, colSpan: 7, styles: { fontStyle: 'bold' } }],
-            ...grp.bonds.map(bond => {
-                const d = describeBond(bond.atoms.map(nodeLikeAtom));
-                const extreme = grp.min === grp.max ? null
-                    : bond.length === grp.min ? ['Min', LENGTH_MIN] : bond.length === grp.max ? ['Max', LENGTH_MAX] : null;
-                const mark = extreme ? { content: gettext(extreme[0]), styles: { textColor: extreme[1], fontStyle: 'bold' } } : '';
-                const length = extreme ? { content: formatLength(bond.length), styles: { halign: 'right', textColor: extreme[1] } }
-                    : num(formatLength(bond.length));
-                return [length, num(formatDelta(bond.length - grp.mean)), d.chain, d.pos, d.serials, d.residues, mark];
-            }),
-        ]),
-        columnStyles: right([0, 1]),
-    });
+    if (options.bondList) {
+        subTitle(gettext('Einzelne Bindungen je Atompaar'));
+        table({
+            head: [[num(gettext('Länge (Å)')), num(gettext('Abw. vom Ø (Å)')), gettext('Kette'), gettext('Pos.'),
+                    gettext('Atom-Nr.'), gettext('Aminosäure'), '']],
+            body: b.by_atoms.flatMap(grp => [
+                [{ content: `${grp.atoms.join('–')} (${formatInt(grp.count)})`, colSpan: 7, styles: { fontStyle: 'bold' } }],
+                ...grp.bonds.map(bond => {
+                    const d = describeBond(bond.atoms.map(nodeLikeAtom));
+                    const extreme = grp.min === grp.max ? null
+                        : bond.length === grp.min ? ['Min', LENGTH_MIN] : bond.length === grp.max ? ['Max', LENGTH_MAX] : null;
+                    const mark = extreme ? { content: gettext(extreme[0]), styles: { textColor: extreme[1], fontStyle: 'bold' } } : '';
+                    const length = extreme ? { content: formatLength(bond.length), styles: { halign: 'right', textColor: extreme[1] } }
+                        : num(formatLength(bond.length));
+                    return [length, num(formatDelta(bond.length - grp.mean)), d.chain, d.pos, d.serials, d.residues, mark];
+                }),
+            ]),
+            columnStyles: right([0, 1]),
+        });
+    }
 
     // Winkel
     const ang = data.angles;
@@ -3002,13 +3005,21 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
         });
 
         const pdfButton = document.getElementById('export-pdf');
+        // Häkchen "Einzelne Bindungen" im PDF; Wahl bleibt im Browser gespeichert
+        const pdfBondList = document.getElementById('export-pdf-bonds');
+        if (pdfBondList) {
+            try { pdfBondList.checked = localStorage.getItem('pdfBondList') === '1'; } catch { /* ohne Speicher: aus */ }
+            pdfBondList.addEventListener('change', () => {
+                try { localStorage.setItem('pdfBondList', pdfBondList.checked ? '1' : '0'); } catch { /* ignorieren */ }
+            });
+        }
         pdfButton.addEventListener('click', async () => {
             pdfButton.disabled = true;
             try {
                 await loadScript(jspdfSrc);
                 await loadScript(autotableSrc);
                 const data = exportData();
-                buildStatsPdf(data).save(`${exportBaseName(filename, data.model)}.pdf`);
+                buildStatsPdf(data, { bondList: pdfBondList?.checked }).save(`${exportBaseName(filename, data.model)}.pdf`);
             } catch (err) {
                 console.error('PDF konnte nicht erstellt werden:', err);
             } finally {
