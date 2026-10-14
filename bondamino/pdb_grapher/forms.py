@@ -1,3 +1,13 @@
+"""Forms of Bondamino and the invitation email.
+
+* Login and password reset: ``LoginForm``/``AdminLoginForm`` (login throttling via ``throttle.py``),
+  ``PasswordResetForm`` (rate limited, also for invited users without a password).
+* User administration: ``InvitationUserForm`` and ``send_invitation`` (used by ``admin.py``),
+  ``UserSettingsForm`` (account page).
+* Files and notes: ``AvailabilityForm``/``PDBUploadForm`` (who can see a file) and ``NoteForm`` (who can read a
+  note). Their ``groups`` fields offer only the user's own groups plus the groups the object is already shared
+  with.
+"""
 import logging
 import unicodedata
 
@@ -22,14 +32,25 @@ logger = logging.getLogger(__name__)
 
 
 def _same_email(a, b):
+    """Compares two email addresses case-insensitively after Unicode normalization (as Django does)."""
     return unicodedata.normalize('NFKC', a).casefold() == unicodedata.normalize('NFKC', b).casefold()
 
 
 class ThrottledLoginMixin:
-    """Nach zu vielen Fehlversuchen wird die Anmeldung für eine Weile abgelehnt, auch mit
-    richtigem Passwort (siehe throttle.py)."""
+    """Mixin for authentication forms that rejects logins after too many failed attempts.
+
+    While locked, even the correct password is rejected, so an attacker cannot tell whether a guess was right
+    (limits and duration in ``throttle.py``). Must precede the Django form class in the bases so its ``clean``
+    wraps Django's authentication.
+    """
 
     def clean(self):
+        """Checks the lock, authenticates and updates the failure counters.
+
+        Raises:
+            ValidationError: With code ``'throttled'`` while the login is locked, or Django's own error for a
+                wrong password or inactive user (which is counted as a failure).
+        """
         username = self.cleaned_data.get('username') or ''
         if self.request is None or not username:
             return super().clean()
@@ -49,25 +70,35 @@ class ThrottledLoginMixin:
 
 
 class LoginForm(ThrottledLoginMixin, auth_forms.AuthenticationForm):
+    """Throttled login form of the site (wired up in ``bondamino/urls.py``)."""
     pass
 
 
 class AdminLoginForm(ThrottledLoginMixin, AdminAuthenticationForm):
+    """Throttled login form of the admin (wired up in ``admin.py``)."""
     pass
 
 
 class PasswordResetForm(auth_forms.PasswordResetForm):
-    """Passwort vergessen. Anders als bei Django auch für User ohne Passwort, also nach einer
-    noch nicht angenommenen oder abgelaufenen Einladung. Je E-Mail- und IP-Adresse gehen nur
-    wenige E-Mails pro Stunde raus; die Antwort ist dieselbe, damit nichts verraten wird."""
+    """Forgotten password form.
+
+    Unlike Django's form it also works for users without a usable password, i.e. after an invitation that was
+    not yet accepted or has expired. Only a few emails per hour are sent per email address and per IP address;
+    the response is the same either way so that nothing is revealed.
+    """
 
     def get_users(self, email):
+        """Returns the active users with this email address, including users without a usable password.
+
+        Overrides Django's version, which skips users without a usable password.
+        """
         user_model = get_user_model()
         email_field = user_model.get_email_field_name()
         users = user_model._default_manager.filter(**{f'{email_field}__iexact': email, 'is_active': True})
         return (u for u in users if _same_email(email, getattr(u, email_field)))
 
     def save(self, *args, request=None, **kwargs):
+        """Sends the reset email unless the rate limit is reached (then only a warning is logged)."""
         if request is not None and not throttle.reset_allowed(request, self.cleaned_data['email']):
             logger.warning('Password reset rate limit reached for %s', throttle.client_ip(request))
             return
@@ -75,7 +106,17 @@ class PasswordResetForm(auth_forms.PasswordResetForm):
 
 
 def send_invitation(request, user):
-    """E-Mail an einen neu angelegten User mit dem Link zum Festlegen seines Passworts."""
+    """Sends a newly created user an email with the link to set their password.
+
+    The link leads to ``views.SetPasswordView`` and is valid for ``PASSWORD_RESET_TIMEOUT``.
+
+    Args:
+        request: The current request, used to build the absolute link.
+        user: The invited user; must have an email address.
+
+    Raises:
+        Exception: Any error of the mail backend (e.g. SMTP errors) is passed on to the caller.
+    """
     path = reverse('pdb_grapher:invitation', kwargs={
         'uidb64': urlsafe_base64_encode(force_bytes(user.pk)),
         'token': default_token_generator.make_token(user),
@@ -91,8 +132,11 @@ def send_invitation(request, user):
 
 
 class InvitationUserForm(forms.ModelForm):
-    """User im Admin anlegen: ohne Passwort; die Person legt es über den Link in der
-    Einladung selbst fest und kann sich erst danach anmelden."""
+    """Admin form for creating a user without a password.
+
+    The person sets the password via the link in the invitation email and can only log in afterwards. The email
+    address is therefore required.
+    """
 
     class Meta:
         model = get_user_model()
@@ -112,7 +156,11 @@ class InvitationUserForm(forms.ModelForm):
 
 
 class UserSettingsForm(forms.ModelForm):
-    """Einstellungen auf der Account-Seite; zur Wahl stehen die im Admin angelegten Sprachen."""
+    """Settings form on the account page; offers the languages created in the admin.
+
+    Args:
+        current_language: Active language code, preselected if the user has not stored a language yet.
+    """
     language = forms.ChoiceField(label=_('Sprache'), widget=forms.Select(attrs={'class': 'form-select'}))
 
     class Meta:
@@ -128,10 +176,13 @@ class UserSettingsForm(forms.ModelForm):
 
 
 class AvailabilityForm(forms.ModelForm):
-    """Verfügbarkeit einer PDB-Datei: persönlich und/oder für Arbeitsgruppen.
+    """Availability of a PDB file: personal and/or for work groups.
 
-    Auswählbar sind die Gruppen des Users sowie Gruppen, in denen die Datei bereits
-    freigegeben ist (damit der Uploader sie auch nach einem Gruppenwechsel entfernen kann).
+    Selectable are the user's groups and the groups the file is already shared with (so the uploader can remove
+    it from a group even after leaving that group). At least one of personal/groups is required.
+
+    Args:
+        user: The uploader, whose groups are offered.
     """
     personal = forms.BooleanField(
         label=_('Für mich persönlich'), required=False, initial=True,
@@ -164,7 +215,10 @@ class AvailabilityForm(forms.ModelForm):
 
 
 class PDBUploadForm(AvailabilityForm):
-    """Neue PDB-Datei: entweder hochgeladen oder per PDB-ID von RCSB geladen."""
+    """New PDB file: either uploaded or fetched from RCSB by PDB ID, plus its availability.
+
+    After validation ``cleaned_data['pdb_file']`` always holds the file, also when it was fetched by ID.
+    """
     pdb_file = forms.FileField(
         label=_('PDB-Datei'), required=False,
         help_text=_('Unterstützt .pdb Dateien'),
@@ -202,7 +256,7 @@ class PDBUploadForm(AvailabilityForm):
     def clean(self):
         cleaned = super().clean()
         if self.errors:
-            return cleaned  # Kein Abruf bei RCSB, solange das Formular ohnehin ungültig ist
+            return cleaned  # no RCSB request while the form is invalid anyway
         pdb_file, pdb_id = cleaned.get('pdb_file'), cleaned.get('pdb_id')
         if pdb_file and pdb_id:
             self.add_error('pdb_file', _('Bitte entweder eine Datei auswählen oder eine PDB-ID eingeben, nicht beides.'))
@@ -219,11 +273,13 @@ class PDBUploadForm(AvailabilityForm):
 
 
 class NoteForm(forms.ModelForm):
-    """Anmerkung mit Sichtbarkeit: nur für den Verfasser oder zusätzlich für ausgewählte
-    Arbeitsgruppen.
+    """Note with visibility: only for the author or additionally for selected work groups.
 
-    Auswählbar sind die Gruppen des Users sowie Gruppen, für die die Anmerkung bereits
-    lesbar ist.
+    Selectable are the user's groups and the groups the note is already shared with. ``visibility`` is not a
+    model field; with ``PERSONAL`` the selected groups are discarded.
+
+    Args:
+        user: The author, whose groups are offered.
     """
     PERSONAL, GROUPS = 'personal', 'groups'
 

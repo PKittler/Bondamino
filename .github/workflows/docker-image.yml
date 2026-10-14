@@ -1,5 +1,6 @@
-# Baut das Container-Image und veröffentlicht es in der GitHub Container Registry
-# (ghcr.io/<owner>/bondamino): bei jedem Push auf main als "latest", bei Tags v* mit Versionsnummer.
+# Builds the container image (linux/amd64 and linux/arm64) and publishes it to the GitHub
+# Container Registry (ghcr.io/<owner>/bondamino): on every push to main as "latest", on tags v*
+# with the version number (e.g. v1.2.3 -> 1.2.3 and 1.2). Can also be started manually.
 name: Docker image
 
 on:

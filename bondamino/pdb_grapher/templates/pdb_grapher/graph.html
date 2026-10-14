@@ -1,5 +1,24 @@
 {% extends 'pdb_grapher/base.html' %}
 {% load i18n versioned_static %}
+{% comment %}
+Graph page of one PDB file, rendered by views.detail (URL pdb/<pk>/).
+
+Layout: tab bar with file name, download link and model/conformation selectors; sequence bar;
+five tab panes (Graph, Ramachandran, Data, Statistics, Notes). The panes are mostly empty
+containers that static/pdb_grapher/js/graph.js fills from the JSON data embedded at the end of
+the page; graph.js reloads other models/conformations from views.model_data
+(data-model-url). The notes tab is driven by js/notes.js.
+
+Context:
+    pdb, filename: The PDBFile and its display name.
+    models, selected_model, average_model: Model numbers in the file, the initially shown model
+        and the special value for the averaged model.
+    altlocs: Alternative conformation ids (altLoc) present in the file.
+    structure_info: Header data (method, resolution, R values, reference sources).
+    graph_data, bond_ensemble: Graph of the selected model and bond statistics over all models
+        (embedded via json_script for graph.js).
+    note_form, user_groups, notes, led_group_ids: Notes tab (see _note_list.html).
+{% endcomment %}
 
 {% block title %}Bondamino – {{ filename }}{% endblock %}
 
@@ -44,7 +63,7 @@
                     </select>
                 </div>
                 {% else %}
-                {# Nur ein Model: Auswahl trotzdem zeigen (deaktiviert), damit die Kopfzeile immer gleich aussieht #}
+                {# Only one model: still show the selector (disabled) so that the header always looks the same #}
                 <div title="{% translate 'Die Datei enthält nur ein Model.' %}">
                     <select id="model-select" class="form-select form-select-sm" aria-label="{% translate 'Model' %}" disabled>
                         <option>{% blocktranslate with m=models.0|default:1 %}Model {{ m }}{% endblocktranslate %}</option>
@@ -61,7 +80,7 @@
                     </select>
                 </div>
                 {% else %}
-                {# Keine Alternativen: Auswahl trotzdem zeigen (deaktiviert), wie bei nur einem Model #}
+                {# No alternative conformations: still show the selector (disabled), as with a single model #}
                 <div title="{% translate 'Die Datei enthält keine alternativen Konformationen.' %}">
                     <select id="altloc-select" class="form-select form-select-sm" aria-label="{% translate 'Konformation' %}" disabled>
                         <option>{% translate 'Eine Konformation' %}</option>
@@ -72,7 +91,7 @@
             </div>
         </div>
 
-        <!-- Sequenzleiste: nur in den Tabs Graph und Daten sichtbar -->
+        {# Sequence bar: only visible in the Graph and Data tabs (toggled by graph.js) #}
         <div class="sequence-card card" id="sequence-card">
             <div class="card-body py-2 px-3">
                 <div id="sequence-scroll" class="sequence-scroll">
@@ -452,6 +471,7 @@
                             </div>
                         </section>
                     </div>
+                    {# PDF export: graph.js loads the jsPDF scripts from the data-*-src URLs only when needed #}
                     <aside class="pane-aside stats-aside d-flex flex-column gap-2" id="stats-export" aria-labelledby="export-title"
                            data-filename="{{ filename }}"
                            data-jspdf-src="{% static_v 'pdb_grapher/vendor/jspdf/jspdf.umd.min.js' %}"
@@ -569,7 +589,7 @@
             </div>
             <div class="tab-pane" id="pane-notes" role="tabpanel" aria-labelledby="tab-notes" tabindex="0">
                 <div class="pane-box notes-pane card" id="notes">
-                    <!-- Eingabefeld bleibt oben stehen, nur die Liste darunter scrollt. -->
+                    {# The input form stays at the top; only the list below it scrolls. Submitted via AJAX by notes.js #}
                     <form method="post" action="{% url 'pdb_grapher:note_create' pdb.pk %}" class="note-compose" data-note-action="create">
                         {% csrf_token %}
                         {% with form=note_form %}
@@ -604,6 +624,7 @@
     </div>
 </div>
 
+{# Initial data for graph.js, read with JSON.parse from these <script type="application/json"> elements #}
 {{ graph_data|json_script:"graph-data" }}
 {{ bond_ensemble|json_script:"bond-ensemble" }}
 {{ structure_info|json_script:"structure-info" }}

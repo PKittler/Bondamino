@@ -1,5 +1,17 @@
 {% extends 'pdb_grapher/base.html' %}
 {% load i18n versioned_static %}
+{% comment %}
+Start page with the list of PDB files visible to the user and the upload dialog, rendered by
+views.index (URL /). Behaviour (row selection, edit/delete toolbar, live search, drag & drop
+upload) is in static/pdb_grapher/js/index.js.
+
+Context:
+    pdb_files: Visible PDBFile objects, annotated with latest_note_at.
+    user_groups: Work groups of the user (filter select).
+    selected_group, query: Current filter (GET parameters group and q).
+    led_group_ids: Pks of the groups the user leads (the user may remove files from them).
+    form: PDBUploadForm; show_upload is true after a failed upload so the dialog reopens.
+{% endcomment %}
 
 {% block title %}Bondamino – {% translate 'PDB-Dateien' %}{% endblock %}
 
@@ -58,6 +70,7 @@
                 </thead>
                 <tbody>
                 {% for pdb in pdb_files %}
+                    {# data-edit-url/data-delete-url only for the uploader; index.js enables the toolbar buttons from them #}
                     <tr class="file-row" tabindex="0" aria-selected="false" data-name="{{ pdb.name|lower }}"
                         {% if pdb.uploaded_by_id == user.pk %}data-edit-url="{% url 'pdb_grapher:edit' pdb.pk %}" data-delete-url="{% url 'pdb_grapher:delete' pdb.pk %}" data-file-name="{{ pdb.name }}"{% endif %}>
                         <td><a href="{% url 'pdb_grapher:detail' pdb.pk %}" class="font-monospace">{{ pdb.name }}</a></td>
@@ -95,6 +108,7 @@
     </div>
 </div>
 
+{# Upload dialog: either a local file or a PDB ID fetched from RCSB, plus the availability #}
 <div class="modal fade" id="upload-modal" tabindex="-1" aria-labelledby="upload-modal-title" aria-hidden="true"
      data-file-input="{{ form.pdb_file.id_for_label }}" data-pdb-id-input="{{ form.pdb_id.id_for_label }}"
      {% if show_upload %}data-show{% endif %}>

@@ -1,4 +1,4 @@
-{% load i18n %}{% autoescape off %}{% blocktranslate with name=user.get_full_name|default:user.get_username %}Hallo {{ name }},{% endblocktranslate %}
+{# Body of the invitation email; rendered by forms.send_invitation (admin). Context: user, link, valid_hours. Plain text, autoescape off. #}{% load i18n %}{% autoescape off %}{% blocktranslate with name=user.get_full_name|default:user.get_username %}Hallo {{ name }},{% endblocktranslate %}
 
 {% blocktranslate with username=user.get_username %}für dich wurde ein Benutzerkonto bei Bondamino angelegt. Dein Benutzername: {{ username }}{% endblocktranslate %}
 

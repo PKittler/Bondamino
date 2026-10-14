@@ -1,3 +1,9 @@
+"""Language selection for each request.
+
+Bondamino replaces Django's ``LocaleMiddleware`` with ``LanguageMiddleware`` so that only languages created in the
+admin (``models.Language``) can be activated, and so that the language stored in the user's settings takes
+precedence over cookie and browser.
+"""
 from django.conf import settings
 from django.utils import translation
 from django.utils.cache import patch_vary_headers
@@ -7,9 +13,19 @@ from .models import Language, UserSettings
 
 
 def select_language(request, codes, preferred=''):
-    """Sprache aus den Einstellungen des Users (`preferred`), sonst die gewählte (Cookie), sonst
-    die passendste laut Browser, sonst die Standardsprache. Berücksichtigt werden nur die im
-    Admin angelegten Sprachen `codes`."""
+    """Chooses the language for a request.
+
+    Order: the user's settings (``preferred``), then the selected language (cookie), then the best match from the
+    browser's Accept-Language header, then ``settings.LANGUAGE_CODE``, then the first available language.
+
+    Args:
+        request: The current request.
+        codes: Codes of the languages created in the admin; only these are considered.
+        preferred: Language code from the user's settings, empty if none.
+
+    Returns:
+        A language code from ``codes``, or ``settings.LANGUAGE_CODE`` if ``codes`` is empty.
+    """
     if not codes:
         return settings.LANGUAGE_CODE
     for chosen in (preferred, request.COOKIES.get(settings.LANGUAGE_COOKIE_NAME)):
@@ -19,7 +35,7 @@ def select_language(request, codes, preferred=''):
         accepted = accepted.lower()
         if accepted in codes:
             return accepted
-        # „en-us“ oder „en“ passt auch zu „en-gb“
+        # "en-us" or "en" also matches "en-gb"
         generic = accepted.split('-')[0]
         for code in codes:
             if code.split('-')[0] == generic:
@@ -28,9 +44,12 @@ def select_language(request, codes, preferred=''):
 
 
 class LanguageMiddleware:
-    """Ersetzt Djangos LocaleMiddleware: Aktiviert werden nur Sprachen, die im Admin angelegt
-    sind. Die Sprachen und die Einstellungen des Users merkt sich der Request für die Navbar.
-    Steht nach der AuthenticationMiddleware, weil die Einstellungen am User hängen."""
+    """Replaces Django's LocaleMiddleware: only languages created in the admin are activated.
+
+    Stores the available languages and the user's settings on the request as ``available_languages`` and
+    ``user_settings`` (exposed to templates by ``context_processors.languages``, e.g. for the navbar). Must come
+    after the AuthenticationMiddleware in ``MIDDLEWARE`` because the settings belong to the user.
+    """
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -44,6 +63,7 @@ class LanguageMiddleware:
         request.LANGUAGE_CODE = translation.get_language()
 
         response = self.get_response(request)
+        # The response depends on the browser language and the language cookie, so caches must not mix them up
         patch_vary_headers(response, ('Accept-Language', 'Cookie'))
         response.headers.setdefault('Content-Language', request.LANGUAGE_CODE)
         return response

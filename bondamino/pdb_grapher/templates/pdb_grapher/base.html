@@ -1,4 +1,19 @@
-{% load i18n versioned_static %}<!DOCTYPE html>
+{% comment %}
+Base layout of all pages: <head> with local fonts, Bootstrap and style.css, the navbar (account
+menu with language and theme switch when signed in; theme toggle and language select otherwise),
+Django messages, and the shared scripts (theme handling, data-confirm dialogs).
+
+Blocks for child templates: title, content, extra_scripts.
+
+Context (from the context processors in settings.TEMPLATES):
+    user, messages, LANGUAGE_CODE: Django's auth, messages and i18n context processors.
+    available_languages: Languages created in the admin (pdb_grapher.context_processors).
+    user_settings: UserSettings of the signed-in user (theme, language), else None.
+
+Static files are referenced with {% static_v %} (templatetags/versioned_static.py) so that browsers
+reload them after an update. The comment ends directly before {% load %} so that <!DOCTYPE html>
+stays the first output.
+{% endcomment %}{% load i18n versioned_static %}<!DOCTYPE html>
 <html lang="{{ LANGUAGE_CODE }}" data-bs-theme="{{ user_settings.theme|default:'light' }}"{% if user_settings %} data-theme-source="user"{% endif %}>
 <head>
     <meta charset="UTF-8">
@@ -7,7 +22,7 @@
     <link rel="stylesheet" href="{% static_v 'pdb_grapher/vendor/fonts/fonts.css' %}">
     <link rel="stylesheet" href="{% static_v 'pdb_grapher/vendor/bootstrap/css/bootstrap.min.css' %}">
     <link rel="stylesheet" href="{% static_v 'pdb_grapher/css/style.css' %}">
-    <!-- Übersetzungen für JavaScript (gettext, interpolate); vor allen Seitenskripten laden -->
+    {# Translations for JavaScript (gettext, interpolate); load before all page scripts #}
     <script src="{% url 'javascript-catalog' %}"></script>
 </head>
 <body>
@@ -97,21 +112,21 @@
 </main>
 
 <script>
-    // Darstellung: angemeldet aus den Einstellungen (vom Server gesetzt), sonst aus dem Browser.
-    // Die Einstellung wird auch im Browser gemerkt, damit die Anmeldeseite passt.
+    // Theme: when signed in from the user settings (set by the server), otherwise from the browser.
+    // The setting is also stored in the browser so that the sign-in page matches.
     (function () {
         const html = document.documentElement;
         try {
             if (html.dataset.themeSource === 'user') localStorage.setItem('theme', html.getAttribute('data-bs-theme'));
             else html.setAttribute('data-bs-theme', localStorage.getItem('theme') || 'light');
-        } catch (e) { /* ohne Speicher: hell bzw. Einstellung */ }
+        } catch (e) { /* no storage: light or the server-side setting */ }
     })();
 </script>
 <script src="{% static_v 'pdb_grapher/vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
 <script>
     function applyTheme(theme) {
         document.documentElement.setAttribute('data-bs-theme', theme);
-        try { localStorage.setItem('theme', theme); } catch (e) { /* ignorieren */ }
+        try { localStorage.setItem('theme', theme); } catch (e) { /* ignore */ }
         document.querySelectorAll('.theme-option').forEach(function (option) {
             option.classList.toggle('is-selected', option.value === theme);
         });
@@ -124,8 +139,8 @@
         });
     }
 
-    // Darstellung im Account-Menü: sofort umschalten und im Hintergrund speichern; ohne
-    // JavaScript sendet das Formular normal und lädt die Seite neu.
+    // Theme in the account menu: switch immediately and save in the background
+    // (views.set_theme); without JavaScript the form is submitted normally and reloads the page.
     const themeForm = document.getElementById('theme-form');
     if (themeForm) {
         themeForm.addEventListener('submit', function (event) {
@@ -139,8 +154,8 @@
         });
     }
 
-    // Formulare mit data-confirm erst nach Rückfrage absenden. Läuft in der Capture-Phase
-    // vor seitenspezifischen Handlern, damit ein Abbruch auch AJAX-Formulare stoppt.
+    // Submit forms with data-confirm only after confirmation. Runs in the capture phase before
+    // page-specific handlers so that cancelling also stops AJAX forms.
     document.addEventListener('submit', function (event) {
         const message = event.target.dataset.confirm;
         if (message && !confirm(message)) {

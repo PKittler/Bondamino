@@ -1,5 +1,15 @@
 {% extends 'pdb_grapher/base.html' %}
 {% load i18n %}
+{% comment %}
+Account page, rendered by views.account (URL account/): user data (read-only, maintained in the
+admin), password change and personal settings. Both forms post to the same view; the hidden field
+"action" tells which one was submitted.
+
+Context:
+    password_form: PasswordChangeForm.
+    settings_form: UserSettingsForm (language, theme).
+    groups: Work groups of the user.
+{% endcomment %}
 
 {% block title %}Bondamino – {% translate 'Konto' %}{% endblock %}
 

@@ -1,5 +1,6 @@
-# Bondamino: Pakete für den Betrieb (pip install -r requirements.txt)
+# Bondamino: packages for running the app (pip install -r requirements.txt).
+# Database drivers: requirements-postgresql.txt or requirements-mariadb.txt (SQLite needs none).
 Django~=5.2.18
 whitenoise~=6.8
-# WSGI-Server für den Betrieb unter Linux/macOS (unter Windows: waitress, siehe README)
+# WSGI server for running on Linux/macOS (on Windows: waitress, see README)
 gunicorn~=26.2; sys_platform != "win32"
