@@ -472,6 +472,7 @@ def parse_pdb(file_path, model_id=None, altloc=None):
     conect = []   # Pairs of atom serial numbers from CONECT.
     serials = {}  # Atom serial -> ((chain, seq, icode), res_name, atom_name), first occurrence.
     current_model = None
+    model_count = 0  # MODEL records seen so far, for models without a readable number.
     with open(file_path, 'r') as f:
         for line in f:
             record = line[:6].strip()
@@ -495,10 +496,12 @@ def parse_pdb(file_path, model_id=None, altloc=None):
                     conect.extend((numbers[0], n) for n in numbers[1:] if n is not None)
                 continue
             if record == 'MODEL':
+                model_count += 1
                 try:
                     current_model = int(line[10:14].strip())
                 except ValueError:
-                    current_model = (current_model or 0) + 1
+                    # Same fallback as list_models(): the position of the model in the file.
+                    current_model = model_count
                 continue
             if record == 'ENDMDL':
                 current_model = None

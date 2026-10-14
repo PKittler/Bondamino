@@ -27,9 +27,6 @@
 :root {
     --band-label-color: var(--bs-secondary-color);
 
-    --bond-backbone-color: var(--bs-primary);
-    --bond-sidechain-color: var(--bs-secondary-color);
-    --bond-peptide-color: var(--bs-danger);
     --bond-label-color: var(--bs-secondary-color);
 
     --node-stroke: var(--bs-body-bg);
@@ -565,8 +562,7 @@ input[type="file"] {
 }
 
 /* ===== SVG elements of the protein graph (classes set by graph.js) =====
-   Data-dependent colours (bond stroke, atom fill) are set as attributes by graph.js.
-   .bond-backbone, .bond-sidechain and .bond-peptide are currently not used by graph.js. */
+   Data-dependent colours (bond stroke, atom fill) are set as attributes by graph.js. */
 .residue-separator { stroke: var(--bs-border-color); stroke-width: 1.5; }
 
 .residue-label-text {
@@ -574,10 +570,6 @@ input[type="file"] {
     font-size: 11px;
     fill: var(--band-label-color);
 }
-
-.bond-backbone { stroke: var(--bond-backbone-color); stroke-width: 2.5; }
-.bond-sidechain { stroke: var(--bond-sidechain-color); stroke-width: 1.8; stroke-dasharray: 5,3; }
-.bond-peptide  { stroke: var(--bond-peptide-color); stroke-width: 2.5; }
 
 .bond-length-text {
     font-family: 'Roboto Mono', monospace;

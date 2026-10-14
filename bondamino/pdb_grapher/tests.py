@@ -80,7 +80,7 @@ from . import throttle
 from .models import Language, Note, PDBFile, UserSettings, WorkGroup
 from .utils import (
     SIDECHAIN_BOND_REFERENCES, SIDECHAIN_BONDS, build_average_graph, build_bond_ensemble, build_graph, list_altlocs,
-    parse_header, parse_pdb, ramachandran_region, ramachandran_value,
+    list_models, parse_header, parse_pdb, ramachandran_region, ramachandran_value,
 )
 
 # Minimal PDB file: the backbone atoms N, CA, C, O of a single alanine (residue 1, chain A)
@@ -1176,6 +1176,16 @@ class ChainGapTests(TestCase):
         ensemble = build_bond_ensemble(path, [1, 2])
         self.assertEqual(ensemble['bonds']['A_1_C|A_2_N'], [1.33, 1.33, 1])
         self.assertEqual(ensemble['max']['length'], 1.52)
+
+    def test_models_without_number_are_numbered_by_position(self):
+        # MODEL records without a readable serial number (columns 11-14 blank): list_models() and
+        # parse_pdb() must agree on the numbering, otherwise selecting model 2 would show no atoms.
+        lines = (['MODEL\n'] + residue_lines(1, 0.0) + ['ENDMDL\n'] +
+                 ['MODEL\n'] + residue_lines(1, 5.0) + ['ENDMDL\n'])
+        path = self.write_pdb(lines)
+        self.assertEqual(list_models(path), [1, 2])
+        residue = next(iter(parse_pdb(path, model_id=2).values()))
+        self.assertEqual(residue['N']['x'], 5.0)
 
 
 def pdb_line(serial, name, res_name, res_seq, x, alt=' ', i_code=' ', occupancy=1.0, record='ATOM  '):
