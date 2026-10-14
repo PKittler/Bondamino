@@ -1,5 +1,5 @@
 # Bondamino as a container image (PostgreSQL, MariaDB/MySQL and SQLite).
-# Build: docker build -t bondamino .   Configuration via environment variables, see README.
+# Build: docker build -t bondamino .   Configuration via environment variables, see INSTALL.md.
 #
 # Two stages: "build" compiles the Python wheels (mysqlclient needs a compiler and the MariaDB
 # headers), the final stage only installs the wheels and the MariaDB runtime library.
@@ -33,6 +33,8 @@ COPY --from=build /wheels /wheels
 RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
 
 COPY --chown=bondamino:bondamino bondamino /app/bondamino
+# Licence of Bondamino and list of third-party licences; required in every copy (LICENSE.md)
+COPY LICENSE LICENSE.md README.md CITATION.md /app/
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/bondamino-entrypoint
 # Next to manage.py so that `docker compose exec bondamino python manage.py ...` works
 WORKDIR /app/bondamino

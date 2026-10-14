@@ -1,301 +1,86 @@
 # Bondamino
 
-Web tool to visualize bond lengths in amino acids as graph.
+**Bond geometry of protein structures at a glance.**
 
-Bondamino is a Django application. It runs standalone on a server, in Docker, in Portainer
-or on any platform that can run a container image. All variants are configured the same way:
-through environment variables (standalone: the file `bondamino/.env`).
+Bondamino is a web application for structural biologists. It reads a protein structure in PDB
+format and shows its bond lengths, bond angles and backbone dihedral angles as an interactive
+graph, compares them with published reference values and points out unusual geometry. A work
+group can keep its structures in one place, look at them together and discuss them in notes.
 
-- [Requirements](#requirements)
-- [Choosing a database](#choosing-a-database)
-- [Installation](#installation)
-  - [Standalone](#standalone)
-  - [Docker Compose](#docker-compose)
-  - [Portainer](#portainer)
-  - [Other platforms](#other-platforms)
-- [Configuration reference](#configuration-reference)
-- [Security](#security)
-- [Updating](#updating)
-- [Backup](#backup)
-- [Development](#development)
+Bondamino runs in the browser. It is installed once on a computer or server, for example at
+your institute, and everyone in the group signs in with their own account.
 
-## Requirements
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE.md)
 
-- Standalone: Python 3.12 or newer, and for PostgreSQL or MariaDB a database server
-- Docker / Portainer: Docker Engine 24 or newer with Compose v2
-- A mail server (SMTP) for invitations and forgotten passwords. Without one, emails are only
-  printed to the server console.
+## Features
 
-## Choosing a database
+- **Load structures** by uploading a `.pdb` file or by entering a PDB ID (e.g. `1LYZ`), which is
+  fetched from the RCSB Protein Data Bank.
+- **Interactive graph** of every residue with its atoms and bonds, coloured by bond length,
+  by deviation from the reference value or by B-factor; zoom, tooltips and a sequence bar for
+  navigation.
+- **Comparison with reference values**: backbone after Engh & Huber (2001), side chains after
+  the CCP4 Monomer Library; Z-scores, RMSZ and a list of outliers.
+- **Ramachandran plot** with the Top8000 regions (MolProbity method) and an evaluation of
+  every residue as favoured, allowed or outlier.
+- **Real-world structures**: multiple models (e.g. NMR ensembles, including an averaged
+  model), alternate conformations, chain breaks, disulfide bridges, ligands and modified amino
+  acids.
+- **Exports**: PDF report, CSV tables for spreadsheets, JSON data, and the Ramachandran plot
+  and histograms as images (SVG, PNG, JPEG) for figures.
+- **Work groups and notes**: share structures with your group, write notes visible to you or
+  to selected groups.
+- **For the whole group**: user accounts with invitation emails, English and German user
+  interface, light and dark mode.
 
-| Database | Use |
+## Getting started
+
+How you install Bondamino depends on where it should run. The quickest way to try it on your
+own computer is Docker:
+
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and start it.
+2. Download Bondamino (on this page **Code → Download source code → zip**, then unpack it and
+   rename the folder to `Bondamino`) or clone it with Git.
+3. In the Bondamino folder, copy the file `.env.example` to `.env`, fill in
+   `ADMIN_USERNAME`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` (your first administrator account) and
+   empty the line `EMAIL_BACKEND=` (emails are then written to the log instead of being sent).
+4. Open a terminal in the Bondamino folder and run
+
+   ```sh
+   docker compose -f docker-compose.sqlite.yml up -d --build
+   ```
+
+5. Open http://localhost:8000 in your browser and sign in.
+
+This setup is meant for trying Bondamino out. For a server that your group uses every day, with
+PostgreSQL or MariaDB, HTTPS, email and backups, and for installation without Docker (with
+gunicorn) or in Portainer, follow [INSTALL.md](INSTALL.md).
+
+## Documentation
+
+| Document | Contents |
 |---|---|
-| PostgreSQL | Recommended for production |
-| MariaDB / MySQL | Supported |
-| SQLite | Testing, single users and small groups; no separate server needed |
+| [INSTALL.md](INSTALL.md) | Installation step by step: on your own computer, on a server with gunicorn, with Docker, in Portainer; configuration, updates, backups |
+| [TUTORIAL.md](TUTORIAL.md) | A complete analysis from the first sign-in to the export, and guides for individual features |
+| [DOCUMENTATION.md](DOCUMENTATION.md) | Reference of every page, option and export, and the scientific definitions (Z-score, RMSZ, thresholds) |
+| [CITATION.md](CITATION.md) | How to cite Bondamino and the data sources in publications |
+| [LICENSE.md](LICENSE.md) | Licence of Bondamino and of the software and data it uses, and what that means for you |
+| [TRANSPARENCY.md](TRANSPARENCY.md) | How Bondamino was developed with AI (Claude) |
 
-MongoDB and DuckDB are not supported: Bondamino's data (users, groups, files, notes) is
-relational, and DuckDB is designed for analytics, not for concurrent writes of a web application.
+## Citing
 
-## Installation
+If Bondamino contributed to your publication, please cite it together with the reference data
+you used; see [CITATION.md](CITATION.md). Machine-readable citation data is in
+[CITATION.cff](CITATION.cff).
 
-### Standalone
+## Licence
 
-1. Get the code and create a virtual environment:
+Bondamino is free software under the GNU Affero General Public License v3.0 or later, with
+additional terms that require the licences of Bondamino and of its components to be kept. You
+may use, change and pass it on; changed versions must stay under the same licence. Details,
+including all third-party software and data sources, are in [LICENSE.md](LICENSE.md).
 
-   ```sh
-   git clone https://github.com/PKittler/Bondamino.git
-   cd Bondamino
-   python3 -m venv .venv
-   . .venv/bin/activate            # Windows: .venv\Scripts\activate
-   ```
+## Development with AI
 
-2. Install the packages for your database:
-
-   ```sh
-   pip install -r requirements.txt               # SQLite
-   pip install -r requirements-postgresql.txt    # PostgreSQL
-   pip install -r requirements-mariadb.txt       # MariaDB / MySQL
-   ```
-
-   `mysqlclient` needs the MariaDB/MySQL client library and a compiler, e.g. on Debian/Ubuntu
-   `sudo apt install build-essential pkg-config default-libmysqlclient-dev`.
-
-   For PostgreSQL or MariaDB, create an empty database and a user first, e.g. in PostgreSQL:
-
-   ```sql
-   CREATE USER bondamino WITH PASSWORD 'choose-a-password';
-   CREATE DATABASE bondamino OWNER bondamino;
-   ```
-
-   or in MariaDB:
-
-   ```sql
-   CREATE DATABASE bondamino CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-   CREATE USER 'bondamino'@'localhost' IDENTIFIED BY 'choose-a-password';
-   GRANT ALL PRIVILEGES ON bondamino.* TO 'bondamino'@'localhost';
-   ```
-
-3. Run the guided setup:
-
-   ```sh
-   cd bondamino
-   python manage.py setup
-   ```
-
-   It asks step by step for the database (and tests the connection), the domain, HTTPS and the
-   mail server (and can send a test email). It then writes `bondamino/.env`, creates the
-   database tables, collects the static files and creates the first administrator. Run it again
-   at any time to change the configuration; the previous file is kept as `.env.bak`.
-
-4. Start the web server:
-
-   ```sh
-   gunicorn bondamino.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120
-   ```
-
-   On Windows, use waitress instead (`pip install waitress`):
-
-   ```sh
-   waitress-serve --listen=127.0.0.1:8000 bondamino.wsgi:application
-   ```
-
-5. Put a reverse proxy with HTTPS in front (nginx, Apache, Caddy, Traefik, …), answer "HTTPS"
-   with yes in the setup and forward the original host and protocol. Example for nginx:
-
-   ```nginx
-   server {
-       listen 443 ssl;
-       server_name bondamino.example.org;
-       # ssl_certificate ... / ssl_certificate_key ...
-       client_max_body_size 25m;       # uploads are limited to 20 MB
-
-       location / {
-           proxy_pass http://127.0.0.1:8000;
-           proxy_set_header Host $host;
-           proxy_set_header X-Forwarded-Proto $scheme;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_read_timeout 120s;
-       }
-   }
-   ```
-
-6. To start Bondamino automatically, e.g. with systemd (`/etc/systemd/system/bondamino.service`):
-
-   ```ini
-   [Unit]
-   Description=Bondamino
-   After=network.target
-
-   [Service]
-   User=bondamino
-   WorkingDirectory=/opt/Bondamino/bondamino
-   ExecStart=/opt/Bondamino/.venv/bin/gunicorn bondamino.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120
-   Restart=on-failure
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-   then `sudo systemctl enable --now bondamino`.
-
-### Docker Compose
-
-There is one Compose file per database:
-
-| File | Database |
-|---|---|
-| `docker-compose.yml` | PostgreSQL (recommended) |
-| `docker-compose.mariadb.yml` | MariaDB |
-| `docker-compose.sqlite.yml` | SQLite, single container |
-
-1. Copy the Compose file of your choice and `.env.example` into a folder, or clone the
-   repository. Rename `.env.example` to `.env` and fill in at least:
-
-   - `DB_PASSWORD` (not needed for SQLite): letters and digits only, e.g. from
-     `python -c "import secrets; print(secrets.token_hex(24))"`
-   - `ALLOWED_HOSTS`: the domain under which Bondamino is reached
-   - `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`: the first administrator
-   - the `EMAIL_*` settings of your mail server
-
-   Leave `SECRET_KEY` empty: it is generated on the first start and stored in the data volume.
-   Once the administrator exists, remove `ADMIN_PASSWORD` again; it is only needed for the first
-   start and would otherwise stay readable in the container configuration.
-   `DATABASE_URL` is set by the Compose file; the entry in `.env` is ignored.
-
-2. Start:
-
-   ```sh
-   docker compose up -d                                   # PostgreSQL
-   docker compose -f docker-compose.mariadb.yml up -d     # MariaDB
-   docker compose -f docker-compose.sqlite.yml up -d      # SQLite
-   ```
-
-   Bondamino is then reachable on port 8000 (change it with `BONDAMINO_PORT`). The image is
-   pulled from `ghcr.io/pkittler/bondamino`; to build it yourself from the cloned repository,
-   add `--build`.
-
-3. For HTTPS, put a reverse proxy in front (see the nginx example above, or Traefik/Caddy in
-   Docker) and set `HTTPS=1`. The proxy should also limit the request size (uploads are limited to
-   20 MB, but without a proxy the file is only rejected after it has been received completely).
-
-Logs: `docker compose logs -f bondamino`. Management commands run inside the container, e.g.
-`docker compose exec bondamino python manage.py createsuperuser`.
-
-### Portainer
-
-1. **Stacks → Add stack**, give it a name (e.g. `bondamino`).
-2. Choose one of:
-   - **Repository**: URL `https://github.com/PKittler/Bondamino`, reference `refs/heads/main`,
-     Compose path `docker-compose.yml` (or `docker-compose.mariadb.yml`,
-     `docker-compose.sqlite.yml`).
-   - **Web editor**: paste the content of one of the Compose files and delete the line
-     `build: .` (the Web editor cannot build images; the image is pulled instead).
-3. Under **Environment variables**, add the variables from step 1 of
-   [Docker Compose](#docker-compose) (`DB_PASSWORD`, `ALLOWED_HOSTS`, `ADMIN_*`, `EMAIL_*`, …).
-   Portainer can also load them from a file ("Load variables from .env file").
-4. **Deploy the stack.** Bondamino listens on port 8000 of the host.
-
-### Other platforms
-
-The image `ghcr.io/pkittler/bondamino` runs on any container platform (Kubernetes, Nomad,
-Synology, Unraid, cloud services, …):
-
-- Port: `8000` (HTTP)
-- Volume: `/data` (uploaded PDB files, the generated secret key, and the SQLite database if used)
-- Configuration: the environment variables in the [reference](#configuration-reference); for
-  PostgreSQL or MariaDB set `DATABASE_URL`, without it SQLite in `/data` is used
-- First administrator: `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`,
-  `DJANGO_SUPERUSER_PASSWORD`
-- On every start the container applies pending database migrations.
-
-When mounting a host folder to `/data` instead of a named volume, it must be writable for
-user ID 1000.
-
-## Configuration reference
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `SECRET_KEY` | – (Docker: generated) | Long random value; signs sessions and password links. Keep it secret. |
-| `SECRET_KEY_FILE` | Docker: `/data/secret_key` | File with the secret key, if `SECRET_KEY` is empty |
-| `DEBUG` | `0` | `1` = development mode with detailed error pages. Never on a public server. |
-| `ALLOWED_HOSTS` | `localhost` with `DEBUG=1`, otherwise none | Domains under which Bondamino is reached, comma-separated |
-| `HTTPS` | `0` | `1` = served via HTTPS through a reverse proxy: secure cookies, `X-Forwarded-Proto` is trusted, the client address is taken from the last entry of `X-Forwarded-For` |
-| `CSRF_TRUSTED_ORIGINS` | derived from `ALLOWED_HOSTS` | Only needed if the proxy changes the host name, e.g. `https://bondamino.example.org` |
-| `DATABASE_URL` | `sqlite:///db.sqlite3` | `sqlite:///file` (relative to `manage.py`), `sqlite:////absolute/path`, `postgres://user:password@host:5432/name`, `mariadb://user:password@host:3306/name`. URL-encode special characters in user and password (`@` → `%40`). Options after `?`, e.g. `?sslmode=require`. |
-| `CONN_MAX_AGE` | `60` | Seconds a database connection is reused |
-| `MEDIA_ROOT` | `bondamino/media` (Docker: `/data/media`) | Uploaded PDB files |
-| `STATIC_ROOT` | `bondamino/staticfiles` | Target of `collectstatic` |
-| `TIME_ZONE` | `UTC` | e.g. `Europe/Berlin` |
-| `EMAIL_BACKEND` | console | `django.core.mail.backends.smtp.EmailBackend` to send emails |
-| `EMAIL_HOST`, `EMAIL_PORT` | `localhost`, `25` | SMTP server |
-| `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | – | SMTP login |
-| `EMAIL_USE_TLS`, `EMAIL_USE_SSL` | `0` | `1` = STARTTLS (port 587) or SSL/TLS (port 465) |
-| `DEFAULT_FROM_EMAIL` | `Bondamino <noreply@localhost>` | Sender of all emails |
-| `LOG_LEVEL` | `WARNING` | Log level of the console output |
-| `GUNICORN_WORKERS`, `GUNICORN_TIMEOUT` | `3`, `120` | Docker only: web server processes and request timeout |
-
-Standalone, variables set in the environment take precedence over `bondamino/.env`. Another
-file can be used with `BONDAMINO_ENV_FILE=/path/to/file`.
-
-Password links (invitation, forgotten password) are valid for 24 hours and only once. Links in
-emails use the domain under which the page was requested, so `ALLOWED_HOSTS` and the proxy's
-`Host` header must contain the public domain.
-
-## Security
-
-- Sign-in (also `/admin/`): after 5 failed attempts for a user name from one address, or 20 failed
-  attempts from one address in total, sign-in from that address is blocked for 15 minutes.
-- Forgotten password: at most 3 emails per address and 10 requests per client address per hour.
-- The counters are kept in the database (`manage.py createcachetable`). Behind a reverse proxy,
-  set `HTTPS=1` and let the proxy set `X-Forwarded-For` (nginx: see above; Traefik and Caddy do
-  this by default), otherwise all clients share the proxy's address.
-- Uploaded files are only delivered to users who may see them, never directly by the web server.
-- All scripts, styles and fonts are delivered by Bondamino itself; no external services are
-  contacted, except RCSB when a structure is loaded by PDB ID.
-- HSTS and the redirect from HTTP to HTTPS are left to the reverse proxy.
-
-## Updating
-
-Standalone:
-
-```sh
-git pull
-pip install -r requirements-postgresql.txt     # the file of your database
-cd bondamino
-python manage.py migrate
-python manage.py createcachetable
-python manage.py collectstatic --noinput
-sudo systemctl restart bondamino
-```
-
-Docker Compose: `docker compose pull && docker compose up -d` (with `-f` for MariaDB/SQLite).
-Portainer: open the stack and choose **Pull and redeploy** (Repository: **Update the stack**
-with "Re-pull image").
-
-## Backup
-
-Back up two things:
-
-- the database: `pg_dump` (PostgreSQL), `mariadb-dump` (MariaDB), or the SQLite file
-- the uploaded PDB files: `MEDIA_ROOT` (Docker: the volume `/data`, which also holds the
-  secret key)
-
-Docker example for PostgreSQL:
-
-```sh
-docker compose exec db pg_dump -U bondamino bondamino > bondamino.sql
-docker run --rm -v bondamino_bondamino-data:/data -v "$PWD":/backup alpine tar czf /backup/bondamino-data.tgz -C /data .
-```
-
-## Development
-
-```sh
-pip install -r requirements.txt
-cd bondamino
-python manage.py setup        # SQLite, answer "Development mode" with yes
-python manage.py runserver
-python manage.py test pdb_grapher
-```
-
-With `DEBUG=1`, `ALLOWED_HOSTS` defaults to `localhost`.
+Bondamino was developed with the help of Claude (Anthropic). What this means and how the
+results were checked is described in [TRANSPARENCY.md](TRANSPARENCY.md).

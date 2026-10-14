@@ -2,5 +2,5 @@
 # Database drivers: requirements-postgresql.txt or requirements-mariadb.txt (SQLite needs none).
 Django~=5.2.18
 whitenoise~=6.8
-# WSGI server for running on Linux/macOS (on Windows: waitress, see README)
+# WSGI server for running on Linux/macOS (on Windows: waitress, see INSTALL.md)
 gunicorn~=26.2; sys_platform != "win32"
