@@ -605,11 +605,20 @@ function render(canvas, graphData, bondStyle, layout, animate) {
     const monoColor = cssVar('--bond-mono');
 
     const zColors = Object.fromEntries(['ok', 'warn', 'outlier', 'none'].map(c => [c, cssVar(`--z-${c}`)]));
+    const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
+    const bScale = bFactorScale(graphData.nodes.filter(n => positions[n.id]));
+    renderBFactorLegend(bScale);
+    const bColor = b => b === null || b === undefined || !bScale ? zColors.none : bScale.color(b);
     function bondColor(e) {
         if (bondStyle === 'mono') return monoColor;
         if (bondStyle === 'reference') return zColors[zClass(zScore(e))];
+        if (bondStyle === 'bfactor') {
+            const bs = [nodeById.get(e.source), nodeById.get(e.target)].map(n => n?.temp_factor);
+            return bColor(bs.some(b => b === null || b === undefined) ? null : d3.mean(bs));
+        }
         return d3.hsl(minLen === maxLen ? 60 : hue(e.length), 0.8, 0.42).toString();
     }
+    const atomColor = n => bondStyle === 'bfactor' ? bColor(n.temp_factor) : getElementColor(n.element);
 
     // --- Edges ---
     const atomLabel = id => id.slice(id.lastIndexOf('_') + 1);
@@ -714,7 +723,7 @@ function render(canvas, graphData, bondStyle, layout, animate) {
                 const g = enter.append('g').attr('class', 'atom-group').attr('transform', nodeTransform);
                 g.append('title');
                 g.append('circle').attr('class', 'atom-circle').attr('r', NODE_R)
-                    .attr('fill', n => getElementColor(n.element));
+                    .attr('fill', atomColor);
                 g.append('text').attr('class', 'atom-text');
                 return g.call(fadeIn);
             },
@@ -722,14 +731,47 @@ function render(canvas, graphData, bondStyle, layout, animate) {
             fadeOut,
         )
         .call(g => g.select('title').text(n => [
-            `${n.label} · ${n.residue} ${n.residue_seq}${n.i_code || ''} (${interpolate(gettext('Chain %s'), [n.chain])})`,
+            `${n.label} · ${n.residue} ${n.residue_seq}${n.i_code || ''} (${interpolate(gettext('Kette %s'), [n.chain])})`,
+            ...(n.temp_factor === null || n.temp_factor === undefined ? []
+                : [interpolate(gettext('B-Faktor: %s Å²'), [formatBFactor(n.temp_factor)])]),
             ...(anglesByCenter.get(n.id) || []).map(a =>
                 `${a.type}: ${formatAngle(a.value)}${a.z === null ? '' : ` · Z = ${formatZ(a.z)}`}`),
         ].join('\n')))
         .call(g => g.select('text').text(n => n.label))
-        .call(g => g.select('circle').transition(t).attr('fill', n => getElementColor(n.element)))
+        .call(g => g.select('circle').transition(t).attr('fill', atomColor))
         .transition(t)
         .attr('transform', nodeTransform);
+}
+
+// ===== Färbung nach B-Faktor =====
+// Blau (niedrig) über Violett nach Rot (hoch). Die Skala reicht vom 2. bis zum 98. Perzentil
+// der angezeigten Atome, damit einzelne Extremwerte die Farben nicht zusammendrücken.
+const B_HUE_LOW = 230;
+const B_HUE_HIGH = 360;
+const formatBFactor = v => v.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function bFactorScale(nodes) {
+    const values = nodes.map(n => n.temp_factor).filter(b => b !== null && b !== undefined).sort(d3.ascending);
+    if (!values.length) return null;
+    const low = d3.quantileSorted(values, 0.02);
+    const high = d3.quantileSorted(values, 0.98);
+    const hue = d3.scaleLinear().domain([low, high]).range([B_HUE_LOW, B_HUE_HIGH]).clamp(true);
+    return {
+        low, high,
+        clippedLow: values[0] < low, clippedHigh: values[values.length - 1] > high,
+        color: b => d3.hsl(low === high ? (B_HUE_LOW + B_HUE_HIGH) / 2 : hue(b), 0.75, 0.45).toString(),
+    };
+}
+
+function renderBFactorLegend(scale) {
+    const legend = d3.select('#legend-bfactor');
+    if (legend.empty()) return;
+    legend.select('.bfactor-empty').property('hidden', Boolean(scale));
+    legend.select('.bfactor-scale').property('hidden', !scale);
+    if (!scale) return;
+    const stops = d3.range(0, 1.0001, 0.25).map(f => scale.color(scale.low + f * (scale.high - scale.low)));
+    legend.select('.bfactor-bar').style('background', `linear-gradient(to right, ${stops.join(', ')})`);
+    legend.select('.bfactor-low').text(`${scale.clippedLow ? '≤ ' : ''}${formatBFactor(scale.low)}`);
+    legend.select('.bfactor-high').text(`${scale.clippedHigh ? '≥ ' : ''}${formatBFactor(scale.high)}`);
 }
 
 // ===== Sequenzleiste =====
@@ -862,7 +904,7 @@ function renderSequence(canvas, graphData) {
         .attr('transform', c => `translate(${c.x},${SEQ_TICK_H})`)
         .on('click', (event, c) => jumpToResidue(canvas, c.res))
         .call(g => g.select('title').text(c => {
-            const lines = [`${c.res.name} ${c.res.pos} (${interpolate(gettext('Chain %s'), [c.res.chain])})`];
+            const lines = [`${c.res.name} ${c.res.pos} (${interpolate(gettext('Kette %s'), [c.res.chain])})`];
             if (c.res.parent) lines.push(interpolate(gettext('Modifizierte Aminosäure, abgeleitet von %s'), [aminoAcidLabel(c.res.parent)]));
             const variants = residueVariants(c.res);
             if (variants) lines.push(interpolate(gettext('Aminosäure je Konformation: %s'), [variants]));
@@ -2592,6 +2634,73 @@ function buildStatsExport(graphData, ensemble, modelLabel, filename) {
     };
 }
 
+// ===== CSV-Export =====
+// Mit Dezimalkomma (Deutsch) trennt ein Semikolon die Spalten, sonst ein Komma – so öffnet
+// eine Tabellenkalkulation in derselben Sprache die Datei direkt. BOM für die Kodierung.
+const CSV_DECIMAL = (1.5).toLocaleString(LOCALE).includes(',') ? ',' : '.';
+const CSV_SEPARATOR = CSV_DECIMAL === ',' ? ';' : ',';
+const csvNumber = (v, digits) => v === null || v === undefined || Number.isNaN(v) ? ''
+    : (roundTo(v, digits) || 0).toFixed(digits).replace('.', CSV_DECIMAL);
+function csvField(v) {
+    const s = v === null || v === undefined ? '' : String(v);
+    return s.includes(CSV_SEPARATOR) || /["\r\n]/.test(s) ?`"${s.replaceAll('"', '""')}"` : s;
+}
+const csvText = (header, rows) =>
+    '\ufeff' + [header, ...rows].map(r => r.map(csvField).join(CSV_SEPARATOR)).join('\r\n') + '\r\n';
+
+// Spalten eines Atoms in Bindungs- und Winkeltabellen; `i` nummeriert die Atome.
+const csvAtomHeader = i => [gettext('Kette'), gettext('Pos.'), gettext('Aminosäure'), gettext('Atom'), gettext('Atom-Nr.')]
+    .map(label => `${label} ${i}`);
+const csvAtom = n => [n.chain.trim(), `${n.residue_seq}${n.i_code || ''}`, n.residue, n.label, n.serial];
+
+function csvTable(kind, graphData) {
+    const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
+    if (kind === 'atoms') {
+        return csvText(DATA_COLUMNS.map(c => c.label), graphData.nodes.map(n => DATA_COLUMNS.map(c => {
+            const v = c.value(n);
+            return c.num && typeof v === 'string' ? v.replace('.', CSV_DECIMAL) : typeof v === 'string' ? v.trim() : v;
+        })));
+    }
+    if (kind === 'bonds') {
+        const rows = graphData.edges
+            .map(e => [e, nodeById.get(e.source), nodeById.get(e.target)])
+            .filter(([, a, b]) => a && b)
+            .map(([e, a, b]) => [
+                ...csvAtom(a), ...csvAtom(b), BOND_TYPE_LABELS[e.type] || e.type, csvNumber(e.length, 3),
+                csvNumber(e.ref?.[0], 3), csvNumber(e.ref?.[1], 3), csvNumber(zScore(e), 2),
+            ]);
+        return csvText([...csvAtomHeader(1), ...csvAtomHeader(2), gettext('Typ'), gettext('Länge (Å)'),
+            gettext('Referenz (Å)'), gettext('σ (Å)'), 'Z'], rows);
+    }
+    const angles = analyzeAngles(graphData);
+    if (kind === 'angles') {
+        const rows = angles.bondAngles.map(a => [
+            ...a.atoms.flatMap(csvAtom), a.type, csvNumber(a.value, 1),
+            csvNumber(a.ref?.[0], 1), csvNumber(a.ref?.[1], 1), csvNumber(a.z, 2),
+        ]);
+        return csvText([...csvAtomHeader(1), ...csvAtomHeader(2), ...csvAtomHeader(3), gettext('Typ'),
+            gettext('Winkel (°)'), gettext('Referenz (°)'), gettext('σ (°)'), 'Z'], rows);
+    }
+    // Diederwinkel je Aminosäure; ω gehört zur Peptidbindung vor der Aminosäure.
+    const omegaOf = new Map(angles.omegas.map(o => [residueKey(o.res), o]));
+    const rows = graphData.residues
+        .filter(res => res.rama || omegaOf.has(residueKey(res)))
+        .map(res => {
+            const omega = omegaOf.get(residueKey(res));
+            return [
+                res.chain.trim(), res.pos, res.name,
+                csvNumber(res.rama?.phi, 1), csvNumber(res.rama?.psi, 1), csvNumber(omega?.omega, 1),
+                res.rama ? ramaTypeLabel(res.rama.type) : '', res.rama ? ramaRegionLabel(res.rama.region) : '',
+            ];
+        });
+    return csvText([gettext('Kette'), gettext('Pos.'), gettext('Aminosäure'), 'φ (°)', 'ψ (°)', 'ω (°)',
+        gettext('Kategorie'), gettext('Bereich')], rows);
+}
+
+const CSV_FILE_KINDS = {
+    atoms: gettext('atome'), bonds: gettext('bindungen'), angles: gettext('bindungswinkel'), dihedrals: gettext('diederwinkel'),
+};
+
 const exportBaseName = (filename, model, kind = gettext('statistiken')) =>
     `${filename.replace(/\.[^.]+$/, '')}_${kind}_${model.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-')}`;
 
@@ -3101,6 +3210,14 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
             }
         });
 
+        exportBar.querySelectorAll('[data-csv]').forEach(button => {
+            button.addEventListener('click', () => {
+                const kind = button.dataset.csv;
+                downloadBlob(new Blob([csvTable(kind, graphData)], { type: 'text/csv;charset=utf-8' }),
+                    `${exportBaseName(filename, loadedModelLabel, CSV_FILE_KINDS[kind])}.csv`);
+            });
+        });
+
         exportBar.querySelectorAll('[data-histogram-format]').forEach(button => {
             button.addEventListener('click', async () => {
                 const format = button.dataset.histogramFormat;
@@ -3125,6 +3242,10 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
         });
         const referenceLegend = document.getElementById('legend-reference');
         if (referenceLegend) referenceLegend.hidden = activeStyle !== 'reference';
+        const bFactorLegend = document.getElementById('legend-bfactor');
+        if (bFactorLegend) bFactorLegend.hidden = activeStyle !== 'bfactor';
+        const elementLegend = document.getElementById('legend-elements');
+        if (elementLegend) elementLegend.hidden = activeStyle === 'bfactor';
         document.querySelectorAll('.style-option[data-layout]').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.layout === activeLayout);
         });

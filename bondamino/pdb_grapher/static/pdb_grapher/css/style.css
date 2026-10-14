@@ -114,6 +114,11 @@ input[type="file"] {
 }
 
 /* ===== Graph page ===== */
+.bfactor-bar {
+    height: 10px;
+    border-radius: 2px;
+    margin: 2px 0;
+}
 .legend-dot {
     width: 12px;
     height: 12px;
@@ -171,6 +176,7 @@ input[type="file"] {
 /* Eingabefeld oben fest, darunter scrollt die Liste. */
 .notes-pane { overflow: hidden; }
 .notes-pane [hidden] { display: none !important; }
+.graph-legend [hidden] { display: none !important; }
 .note-compose {
     padding: 12px 14px;
     border-bottom: var(--bs-border-width) solid var(--bs-border-color);

@@ -103,13 +103,21 @@
                                 </span>
                                 <span>{% translate 'Einheitlich' %}</span>
                             </button>
-                            <button class="btn btn-outline-secondary style-option" type="button" data-style="reference" onclick="setBondStyle('reference')" title="{% translate 'Bindungsfarbe: Abweichung vom Referenzwert (Engh & Huber 1991) in Standardabweichungen' %}">
+                            <button class="btn btn-outline-secondary style-option" type="button" data-style="reference" onclick="setBondStyle('reference')" title="{% translate 'Bindungsfarbe: Abweichung vom Referenzwert in Standardabweichungen' %}">
                                 <span class="style-preview" aria-hidden="true">
                                     <span class="style-preview-line" style="background:var(--z-ok)"></span>
                                     <span class="style-preview-line" style="background:var(--z-warn)"></span>
                                     <span class="style-preview-line" style="background:var(--z-outlier)"></span>
                                 </span>
                                 <span>{% translate 'Referenz' %}</span>
+                            </button>
+                            <button class="btn btn-outline-secondary style-option" type="button" data-style="bfactor" onclick="setBondStyle('bfactor')" title="{% translate 'Atom- und Bindungsfarbe: B-Faktor' %}">
+                                <span class="style-preview" aria-hidden="true">
+                                    <span class="style-preview-line" style="background:hsl(230,75%,45%)"></span>
+                                    <span class="style-preview-line" style="background:hsl(295,75%,45%)"></span>
+                                    <span class="style-preview-line" style="background:hsl(360,75%,45%)"></span>
+                                </span>
+                                <span>{% translate 'B-Faktor' %}</span>
                             </button>
                         </div>
 
@@ -174,6 +182,15 @@
                                 <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-warn)"></span>2–4</span>
                                 <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-outlier)"></span>{% translate '> 4 (Ausreißer)' %}</span>
                                 <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-none)"></span>{% translate 'ohne Referenz' %}</span>
+                            </div>
+                            <div class="d-flex flex-column gap-1 small text-body-secondary mt-2" id="legend-bfactor" hidden>
+                                <span class="fw-medium">{% translate 'B-Faktor (Å²)' %}</span>
+                                <div class="bfactor-scale">
+                                    <span class="bfactor-bar d-block"></span>
+                                    <span class="d-flex justify-content-between font-monospace"><span class="bfactor-low"></span><span class="bfactor-high"></span></span>
+                                </div>
+                                <span class="bfactor-empty" hidden>{% translate 'keine B-Faktoren' %}</span>
+                                <span class="d-flex align-items-center gap-1"><span class="legend-dot" style="background:var(--z-none)"></span>{% translate 'ohne B-Faktor' %}</span>
                             </div>
                         </aside>
                     </div>
@@ -457,6 +474,35 @@
                                 <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
                             </svg>
                             <span>JSON</span>
+                        </button>
+                        <h3 class="sidebar-title text-uppercase text-body-secondary small fw-medium mt-3 mb-0">CSV</h3>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-csv="atoms" title="{% translate 'Atome als CSV herunterladen' %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>{% translate 'Atome' %}</span>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-csv="bonds" title="{% translate 'Bindungen als CSV herunterladen' %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>{% translate 'Bindungen' %}</span>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-csv="angles" title="{% translate 'Bindungswinkel als CSV herunterladen' %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>{% translate 'Bindungswinkel' %}</span>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-csv="dihedrals" title="{% translate 'Diederwinkel als CSV herunterladen' %}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                            </svg>
+                            <span>{% translate 'Diederwinkel' %}</span>
                         </button>
                         <h3 class="sidebar-title text-uppercase text-body-secondary small fw-medium mt-3 mb-0">{% translate 'Histogramm' %}</h3>
                         <button class="btn btn-outline-secondary btn-sm export-btn w-100" type="button" data-histogram-format="png" title="{% blocktranslate with format='PNG' %}Histogramm als {{ format }} herunterladen{% endblocktranslate %}">
