@@ -1,0 +1,10 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate with name=user.get_full_name|default:user.get_username %}Hallo {{ name }},{% endblocktranslate %}
+
+{% blocktranslate with username=user.get_username %}für dich wurde ein Benutzerkonto bei Bondamino angelegt. Dein Benutzername: {{ username }}{% endblocktranslate %}
+
+{% blocktranslate count hours=valid_hours %}Unter diesem Link legst du dein Passwort fest. Der Link ist {{ hours }} Stunde gültig und kann nur einmal verwendet werden:{% plural %}Unter diesem Link legst du dein Passwort fest. Der Link ist {{ hours }} Stunden gültig und kann nur einmal verwendet werden:{% endblocktranslate %}
+
+{{ link }}
+
+{% translate 'Danach kannst du dich bei Bondamino anmelden.' %}
+{% endautoescape %}

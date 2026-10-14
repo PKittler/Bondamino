@@ -1,9 +1,72 @@
+import unicodedata
+
 from django import forms
+from django.conf import settings
+from django.contrib.auth import forms as auth_forms
+from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.urls import reverse
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils.translation import gettext_lazy as _
 
 from . import rcsb
 from .models import Language, Note, PDBFile, UserSettings, WorkGroup
+
+
+def _same_email(a, b):
+    return unicodedata.normalize('NFKC', a).casefold() == unicodedata.normalize('NFKC', b).casefold()
+
+
+class PasswordResetForm(auth_forms.PasswordResetForm):
+    """Passwort vergessen. Anders als bei Django auch für User ohne Passwort, also nach einer
+    noch nicht angenommenen oder abgelaufenen Einladung."""
+
+    def get_users(self, email):
+        user_model = get_user_model()
+        email_field = user_model.get_email_field_name()
+        users = user_model._default_manager.filter(**{f'{email_field}__iexact': email, 'is_active': True})
+        return (u for u in users if _same_email(email, getattr(u, email_field)))
+
+
+def send_invitation(request, user):
+    """E-Mail an einen neu angelegten User mit dem Link zum Festlegen seines Passworts."""
+    path = reverse('pdb_grapher:invitation', kwargs={
+        'uidb64': urlsafe_base64_encode(force_bytes(user.pk)),
+        'token': default_token_generator.make_token(user),
+    })
+    context = {
+        'user': user,
+        'link': request.build_absolute_uri(path),
+        'valid_hours': settings.PASSWORD_RESET_TIMEOUT // 3600,
+    }
+    subject = ''.join(render_to_string('pdb_grapher/email/invitation_subject.txt', context).splitlines())
+    body = render_to_string('pdb_grapher/email/invitation_email.txt', context)
+    send_mail(subject, body, None, [user.email])
+
+
+class InvitationUserForm(forms.ModelForm):
+    """User im Admin anlegen: ohne Passwort; die Person legt es über den Link in der
+    Einladung selbst fest und kann sich erst danach anmelden."""
+
+    class Meta:
+        model = get_user_model()
+        fields = ['username', 'email', 'first_name', 'last_name']
+        field_classes = {'username': auth_forms.UsernameField}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['email'].required = True
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.set_unusable_password()
+        if commit:
+            user.save()
+        return user
 
 
 class UserSettingsForm(forms.ModelForm):

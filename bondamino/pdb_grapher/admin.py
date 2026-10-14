@@ -1,7 +1,10 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
-from django.utils.translation import gettext_lazy as _
+from django.db import transaction
+from django.utils.translation import gettext, gettext_lazy as _, ngettext
+
+from .forms import InvitationUserForm, send_invitation
 
 from .models import Language, Note, PDBFile, UserSettings, WorkGroup
 
@@ -64,4 +67,52 @@ admin.site.unregister(User)
 
 @admin.register(User)
 class BondaminoUserAdmin(UserAdmin):
+    """Neue User bekommen kein Passwort, sondern eine Einladung per E-Mail mit einem Link, unter
+    dem sie es selbst festlegen."""
     inlines = [*UserAdmin.inlines, WorkGroupMembershipInline, UserSettingsInline]
+    add_form = InvitationUserForm
+    add_form_template = 'admin/change_form.html'
+    add_fieldsets = (
+        (None, {'classes': ('wide',), 'fields': ('username', 'email', 'first_name', 'last_name')}),
+    )
+    list_display = (*UserAdmin.list_display, 'password_set')
+    actions = ['resend_invitation']
+
+    def get_inlines(self, request, obj):
+        # Beim Anlegen nur die Arbeitsgruppen; Einstellungen legt der User selbst fest
+        return [WorkGroupMembershipInline] if obj is None else self.inlines
+
+    @admin.display(description=_('Passwort festgelegt'), boolean=True)
+    def password_set(self, obj):
+        return obj.has_usable_password()
+
+    def _invite(self, request, user):
+        try:
+            send_invitation(request, user)
+        except Exception as error:  # SMTP-Fehler u. ä.: User bleibt angelegt
+            self.message_user(request, gettext('Die Einladung an %(email)s konnte nicht gesendet werden: %(error)s')
+                              % {'email': user.email, 'error': error}, messages.ERROR)
+            return False
+        return True
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if not change:
+            # Erst nach dem Speichern aller Daten senden, damit der Link gültig ist
+            transaction.on_commit(lambda: self._invite(request, obj) and self.message_user(
+                request, gettext('Die Einladung wurde an %(email)s gesendet.') % {'email': obj.email}, messages.SUCCESS))
+
+    @admin.action(description=_('Einladung erneut senden'))
+    def resend_invitation(self, request, queryset):
+        invited = [u for u in queryset if not u.has_usable_password() and u.email and u.is_active]
+        sent = sum(1 for user in invited if self._invite(request, user))
+        if sent:
+            self.message_user(request, ngettext('%(count)d Einladung wurde gesendet.',
+                                                '%(count)d Einladungen wurden gesendet.', sent) % {'count': sent},
+                              messages.SUCCESS)
+        skipped = len(queryset) - len(invited)
+        if skipped:
+            self.message_user(request, ngettext(
+                '%(count)d User hat bereits ein Passwort, keine E-Mail-Adresse oder ist inaktiv.',
+                '%(count)d User haben bereits ein Passwort, keine E-Mail-Adresse oder sind inaktiv.', skipped,
+            ) % {'count': skipped}, messages.WARNING)
