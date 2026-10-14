@@ -77,6 +77,7 @@ from django.urls import reverse
 from bondamino.config import env, env_bool, env_list, parse_database_url, read_env_file
 
 from . import throttle
+from .forms import NoteForm, PDBFileAdminForm
 from .models import Language, Note, PDBFile, UserSettings, WorkGroup
 from .utils import (
     SIDECHAIN_BOND_REFERENCES, SIDECHAIN_BONDS, build_average_graph, build_bond_ensemble, build_graph, list_altlocs,
@@ -572,7 +573,7 @@ class LanguageTests(BaseTestCase):
         self.assertRedirects(response, '/?group=personal', fetch_redirect_response=False)
         response = self.index()
         self.assertContains(response, '<html lang="en-gb"')
-        self.assertContains(response, 'Log out')
+        self.assertContains(response, 'Sign out')
         self.assertContains(response, 'All available')
 
     def test_only_languages_from_admin(self):
@@ -1001,6 +1002,116 @@ class OutputSafetyTests(BaseTestCase):
         self.assertNotIn('/srv/geheim', data.json()['error'])
 
 
+class NoteGroupChoiceTests(BaseTestCase):
+    """Notes can only be shared with groups in which the file is available."""
+
+    def setUp(self):
+        super().setUp()
+        # The uploader is a member of A and B; the file is shared with A only
+        self.pdb = self.make_pdb(personal=True, groups=[self.group_a])
+        self.client.force_login(self.uploader)
+
+    def post_note(self, groups):
+        """Posts a new note shared with ``groups`` and returns the response."""
+        return self.client.post(reverse('pdb_grapher:note_create', args=[self.pdb.pk]), {
+            'note-new-text': 'Notiz', 'note-new-visibility': 'groups', 'note-new-groups': [g.pk for g in groups],
+        })
+
+    def test_only_groups_with_access_are_offered(self):
+        response = self.client.get(reverse('pdb_grapher:detail', args=[self.pdb.pk]))
+        self.assertEqual(list(response.context['note_form'].fields['groups'].queryset), [self.group_a])
+
+    def test_group_without_access_is_rejected(self):
+        self.assertEqual(self.post_note([self.group_b]).status_code, 400)
+        self.assertEqual(self.post_note([self.group_a]).status_code, 200)
+
+    def test_note_keeps_its_groups_when_the_file_leaves_a_group(self):
+        note = Note.objects.create(pdb=self.pdb, author=self.uploader, text='Notiz')
+        note.groups.set([self.group_a])
+        self.pdb.groups.remove(self.group_a)
+        self.assertEqual(list(note.groups.all()), [self.group_a])
+        # The author can still edit it without losing the group
+        form = NoteForm(instance=note, user=self.uploader, pdb=self.pdb)
+        self.assertIn(self.group_a, form.fields['groups'].queryset)
+
+
+class AdminAvailabilityTests(BaseTestCase):
+    """The admin form of a PDB file enforces the same availability rule as the file list."""
+
+    def form(self, pdb, **data):
+        """Returns the bound admin form for ``pdb`` with its current values changed by ``data``."""
+        values = {'name': pdb.name, 'uploaded_by': pdb.uploaded_by_id, 'personal': pdb.personal,
+                  'groups': [g.pk for g in pdb.groups.all()], **data}
+        return PDBFileAdminForm(values, instance=pdb)
+
+    def test_file_must_stay_available(self):
+        pdb = self.make_pdb(personal=True, groups=[self.group_a])
+        self.assertTrue(self.form(pdb).is_valid())
+        self.assertFalse(self.form(pdb, personal=False, groups=[]).is_valid())
+        self.assertTrue(self.form(pdb, personal=False).is_valid())
+        # "Personal" does not count without an uploader
+        self.assertFalse(self.form(pdb, uploaded_by='', groups=[]).is_valid())
+
+
+class TimeZoneTests(BaseTestCase):
+    """Dates and times are shown in the user's time zone; the server default is UTC."""
+
+    def setUp(self):
+        super().setUp()
+        pdb = self.make_pdb(personal=True)
+        PDBFile.objects.filter(pk=pdb.pk).update(
+            uploaded_at=datetime.datetime(2026, 1, 15, 12, 0, tzinfo=datetime.timezone.utc))
+        self.client.force_login(self.uploader)
+
+    def shown(self):
+        """Returns the index page as text."""
+        return self.client.get(reverse('pdb_grapher:index')).content.decode()
+
+    def test_default_and_user_time_zone(self):
+        self.assertIn('15.01.2026 12:00', self.shown())
+        UserSettings.objects.create(user=self.uploader, time_zone='Europe/Berlin')
+        self.assertIn('15.01.2026 13:00', self.shown())
+
+    def test_unknown_time_zone_falls_back_to_default(self):
+        UserSettings.objects.create(user=self.uploader, time_zone='Mars/Olympus_Mons')
+        self.assertIn('15.01.2026 12:00', self.shown())
+
+    def test_save_time_zone_in_settings(self):
+        url = reverse('pdb_grapher:account')
+        response = self.client.post(url, {'action': 'settings', 'language': 'de', 'theme': 'light',
+                                          'time_zone': 'Asia/Tokyo'})
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        self.assertEqual(UserSettings.objects.get(user=self.uploader).time_zone, 'Asia/Tokyo')
+        response = self.client.post(url, {'action': 'settings', 'language': 'de', 'theme': 'light',
+                                          'time_zone': 'Mars/Olympus_Mons'})
+        self.assertEqual(response.status_code, 200)
+
+    def test_settings_without_languages(self):
+        # Without languages in the admin the language field is left out and the form can still be saved
+        Language.objects.all().delete()
+        url = reverse('pdb_grapher:account')
+        self.assertNotContains(self.client.get(url), 'name="language"')
+        response = self.client.post(url, {'action': 'settings', 'theme': 'dark', 'time_zone': ''})
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        self.assertEqual(UserSettings.objects.get(user=self.uploader).theme, 'dark')
+
+
+class ModelDataTests(BaseTestCase):
+    """The model parameter of model_data must name a model of the file."""
+
+    def test_unknown_model_is_rejected(self):
+        pdb = PDBFile(name='nmr.pdb', uploaded_by=self.uploader, personal=True)
+        pdb.file.save('nmr.pdb', ContentFile(
+            b'MODEL        1\n' + PDB_CONTENT.replace(b'END\n', b'ENDMDL\n') +
+            b'MODEL        2\n' + PDB_CONTENT.replace(b'END\n', b'ENDMDL\n') + b'END\n'))
+        self.client.force_login(self.uploader)
+        url = reverse('pdb_grapher:model_data', args=[pdb.pk])
+        self.assertEqual(self.client.get(url, {'model': '2'}).status_code, 200)
+        response = self.client.get(url, {'model': '3'})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('error', response.json())
+
+
 class ConfigTests(TestCase):
     """Configuration helpers in ``bondamino/config.py`` used by settings.py."""
 
@@ -1100,6 +1211,14 @@ class SetupCommandTests(TestCase):
         values = read_env_file(env_file)
         self.assertEqual((values['SECRET_KEY'], values['LOG_LEVEL'], values['DEBUG']), ('bestehend', 'INFO', '1'))
         self.assertTrue(os.path.exists(env_file + '.bak'))
+
+    def test_localhost_and_time_zone(self):
+        """localhost also allows 127.0.0.1; an unknown time zone is asked again."""
+        env_file = os.path.join(tempfile.mkdtemp(), '.env')
+        self.run_setup(['1', 'db.sqlite3', 'localhost', 'n', 'n', 'Mars/Olympus_Mons', 'Europe/Berlin', '2', ''],
+                       env_file)
+        values = read_env_file(env_file)
+        self.assertEqual((values['ALLOWED_HOSTS'], values['TIME_ZONE']), ('localhost,127.0.0.1', 'Europe/Berlin'))
 
 
 def atom_line(serial, name, res_seq, x):
@@ -1716,6 +1835,33 @@ def peptide_lines(residues):
             x, y, z = atoms[3 * i + k]
             lines.append(xyz_line(3 * i + k + 1, atom, name, i + 1, x, y, z))
     return lines
+
+
+class AveragedModelTests(TestCase):
+    """Angles of the averaged model are means over the models, torsions circular means."""
+
+    def write_pdb(self, lines):
+        """Writes PDB lines to a temporary file that is removed after the test; returns its path."""
+        fd, path = tempfile.mkstemp(suffix='.pdb')
+        with os.fdopen(fd, 'w') as f:
+            f.writelines(lines)
+        self.addCleanup(os.remove, path)
+        return path
+
+    def test_angles_are_averaged_over_the_models(self):
+        # The two models differ only in ψ of residue 2: 179° and −179°. Their circular mean is
+        # 180°; averaging coordinates or plain numbers would give a wrong value (0° for numbers).
+        models = [peptide_lines([('ALA', 0, 150, 180), ('ALA', -60, psi, 180), ('ALA', -60, 0, 180)])
+                  for psi in (179, -179)]
+        path = self.write_pdb(['MODEL        1\n'] + models[0] + ['ENDMDL\n', 'MODEL        2\n'] + models[1]
+                              + ['ENDMDL\n'])
+        graph = build_average_graph(path, [1, 2])
+        rama = graph['residues'][1]['rama']
+        self.assertAlmostEqual(abs(rama['psi']), 180, delta=0.1)
+        self.assertAlmostEqual(rama['phi'], -60, delta=0.1)
+        # Bond angles are identical in both models and keep the ideal value of peptide_lines()
+        self.assertAlmostEqual(graph['averaged']['bond_angles']['A_1_C|A_2_N|A_2_CA'], 121.7, delta=0.01)
+        self.assertAlmostEqual(abs(graph['averaged']['torsions']['A_1_CA|A_1_C|A_2_N|A_2_CA']), 180, delta=0.1)
 
 
 class RamachandranTests(TestCase):

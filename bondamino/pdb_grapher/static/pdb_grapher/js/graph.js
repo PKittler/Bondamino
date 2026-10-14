@@ -11,13 +11,16 @@
  *                    their 3D coordinates. Bonds are coloured by length, uniformly,
  *                    by Z-score against reference values or by B-factor. Two
  *                    layouts: `schematic` (fixed grid) and `proportional` (edge
- *                    length proportional to the bond length in Å).
- *   - `ramachandran` Ramachandran plot (φ/ψ), ω (cis/trans) and bond angles,
- *                    each with reference statistics.
+ *                    length equal to the bond length in Å × PROP_SCALE).
+ *   - `ramachandran` Ramachandran plot (φ/ψ) with the Top8000 regions and its
+ *                    image export.
  *   - `data`         Atom table (one row per ATOM/HETATM record).
  *   - `stats`        Composition, bond statistics (reference Z-scores, peptide
  *                    bonds, disulfides, extremes over all models, length
- *                    histogram, bonds grouped by atom pair) and exports.
+ *                    histogram, bonds grouped by type and atom pair), angle
+ *                    statistics (Ramachandran evaluation, ω cis/trans, bond-angle
+ *                    references and groups) and exports. Rows of the outlier
+ *                    tables jump to their residue in the graph.
  *
  * A sequence bar (one-letter codes) above the graph and data tabs is linked to
  * both views: clicking a cell jumps to the residue, scrolling highlights the
@@ -79,6 +82,8 @@ const NODE_R = 16;
 /** @const {number} Vertical space per leaf of the side-chain tree, schematic layout (px). */
 const LEAF_H = 46;
 const PROP_SCALE = 55; // px per Å in proportional layout
+// Steepest side-chain edge in the proportional layout (radians from horizontal).
+const PROP_MAX_BRANCH_ANGLE = 70 * Math.PI / 180;
 const SC_RING_SIDE = 60; // Edge length of rings (and ligand bonds) in the schematic layout (px)
 /** @const {number} Length of the separator line between two residue bands (px). */
 const RESIDUE_SEPARATOR_W = 100;
@@ -557,16 +562,27 @@ function computePositions(graphData, layout) {
 
                 // Each tree level moves one step right; every subtree gets vertical
                 // space proportional to its number of leaves and is centred within it.
-                function assignPos(node, xParent, yTop) {
-                    const dx = isProp ? getBL(node.parentId, node.id) * PROP_SCALE : SC_COL_W;
-                    const x = xParent + dx;
-                    const totalH = countLeaves(node) * leafH;
-                    const y = yTop + totalH / 2;
+                // In the proportional layout the atom is placed at the exact bond length
+                // from its parent, in the direction of its slot; the slope is limited to
+                // PROP_MAX_BRANCH_ANGLE, so the atom may sit slightly off its slot centre.
+                function assignPos(node, parentPos, yTop) {
+                    const slotY = yTop + countLeaves(node) * leafH / 2;
+                    let x, y;
+                    if (isProp) {
+                        const length = getBL(node.parentId, node.id) * PROP_SCALE;
+                        const maxDy = length * Math.sin(PROP_MAX_BRANCH_ANGLE);
+                        const dy = Math.max(-maxDy, Math.min(maxDy, slotY - parentPos.y));
+                        x = parentPos.x + Math.sqrt(length * length - dy * dy);
+                        y = parentPos.y + dy;
+                    } else {
+                        x = parentPos.x + SC_COL_W;
+                        y = slotY;
+                    }
                     positions[node.id] = { x, y };
                     let cy = yTop;
                     node.children.forEach(child => {
                         const ch = countLeaves(child) * leafH;
-                        assignPos(child, x, cy);
+                        assignPos(child, { x, y }, cy);
                         cy += ch;
                     });
                 }
@@ -578,7 +594,7 @@ function computePositions(graphData, layout) {
                 let yTop = caPos.y - (totalLeaves * leafH) / 2;
                 trees.forEach(tree => {
                     const lH = countLeaves(tree) * leafH;
-                    assignPos(tree, caPos.x, yTop);
+                    assignPos(tree, caPos, yTop);
                     yTop += lH;
                 });
 
@@ -1298,6 +1314,27 @@ function jumpToResidue(canvas, res) {
 }
 
 /**
+ * Shows a residue from a table row in the graph tab. Set by the init block,
+ * which owns the canvas and the current graph data; accepts a residue or an
+ * atom node (from the reference outlier tables).
+ * @type {?function(!Object)}
+ */
+let showResidueInGraph = null;
+
+/**
+ * Makes a table row a link to a residue: a click (or Enter) selects the residue
+ * and shows it in the graph tab.
+ * @param {!Object} tr d3 selection of the row.
+ * @param {?Object} target Residue or atom node; nothing happens if null.
+ */
+function linkRowToResidue(tr, target) {
+    if (!target) return;
+    tr.classed('residue-link', true).attr('tabindex', 0)
+        .on('click', () => showResidueInGraph?.(target))
+        .on('keydown', event => { if (event.key === 'Enter') showResidueInGraph?.(target); });
+}
+
+/**
  * Scrolls the graph vertically so that the residue's band is centred.
  * @param {!Object} canvas Canvas object.
  * @param {!Object} res Residue.
@@ -1892,6 +1929,7 @@ function renderReferenceStats(prefix, s, kind, parents) {
         tr.append('td').attr('class', 'text-end').text(k.format(item.value));
         tr.append('td').attr('class', 'text-end').text(`${k.format(item.ref[0])} ± ${k.format(item.ref[1])}`);
         tr.append('td').attr('class', 'text-end z-outlier').text(formatZ(item.z));
+        linkRowToResidue(tr, item.atoms[0]);
     });
 }
 
@@ -2019,6 +2057,15 @@ function analyzeAngles(graphData) {
         return Boolean(c && n && peptides.has(`${c.id}|${n.id}`));
     };
 
+    // Averaged model: bond angles and torsions are means over the models, computed by the
+    // server (utils.build_average_graph); otherwise they come from the coordinates.
+    const averaged = graphData.averaged;
+    const torsion = (...atoms) => averaged?.torsions[atoms.map(a => a.id).join('|')] ?? dihedral(...atoms);
+    const angleOf = (a, center, c) => {
+        const [first, last] = [a.id, c.id].sort();
+        return averaged?.bond_angles[`${first}|${center.id}|${last}`] ?? bondAngle(a, center, c);
+    };
+
     const residues = graphData.residues;
     // φ/ψ, category and region are computed by the server (utils.evaluate_ramachandran)
     const ramachandran = residues.filter(res => res.rama).map(res => ({
@@ -2030,7 +2077,7 @@ function analyzeAngles(graphData) {
         const ca = atom(res, 'CA'), c = atom(res, 'C');
         if (!ca || !c) return;
         if (next && linked(res, next) && atom(next, 'CA')) {
-            const omega = dihedral(ca, c, atom(next, 'N'), atom(next, 'CA'));
+            const omega = torsion(ca, c, atom(next, 'N'), atom(next, 'CA'));
             const abs = Math.abs(omega);
             const kind = abs < CIS_MAX_OMEGA ? 'cis' : abs < TRANS_MIN_OMEGA ? 'twisted' : 'trans';
             omegas.push({ prev: res, res: next, omega, kind });
@@ -2065,7 +2112,7 @@ function analyzeAngles(graphData) {
         for (let i = 0; i < ids.length; i++) {
             for (let j = i + 1; j < ids.length; j++) {
                 const [a, c] = [nodes.get(ids[i]), nodes.get(ids[j])].sort((x, y) => compare(center, x, y));
-                const value = bondAngle(a, center, c);
+                const value = angleOf(a, center, c);
                 const ref = center.angle_refs?.[[a.label, c.label].sort().join('|')] ?? null;
                 const angle = { atoms: [a, center, c], type: `${a.label}–${center.label}–${c.label}`, value, ref, z: zOf(value, ref) };
                 bondAngles.push(angle);
@@ -2295,10 +2342,12 @@ function renderRamachandranStats(angles) {
     rows.append('td').text(p => ramaTypeLabel(p.type));
     rows.append('td').attr('class', 'text-end').text(p => formatAngle(p.phi));
     rows.append('td').attr('class', 'text-end').text(p => formatAngle(p.psi));
+    rows.each(function (p) { linkRowToResidue(d3.select(this), p.res); });
 }
 
 /**
- * Renders the whole Ramachandran tab: plot, Ramachandran statistics, ω
+ * Renders everything about angles: the plot in the Ramachandran tab and, in the
+ * statistics tab (section "Angles"), the Ramachandran evaluation, ω
  * (cis/trans/twisted), bond-angle references and bond-angle groups.
  * @param {!Object} canvas Canvas object.
  * @param {!Object} graphData Graph data.
@@ -2348,6 +2397,7 @@ function renderAngles(canvas, graphData) {
             tr.append('td').attr('class', 'text-end').text(formatAngle(o.omega));
             tr.append('td').attr('class', o.kind === 'cis' && ramaClass(o.res) !== 'pro' ? 'z-outlier' : null)
                 .text(omegaKindLabel(o));
+            linkRowToResidue(tr, o.res);
         });
     }
 
@@ -2498,6 +2548,8 @@ function anglesExport(graphData) {
             twisted: angles.omegas.filter(o => o.kind === 'twisted').length,
             non_trans: angles.omegas.filter(o => o.kind !== 'trans').map(o => ({
                 from: residue(o.prev), to: residue(o.res), omega: round1(o.omega), kind: o.kind,
+                // Proline or a modified proline (by its parent amino acid), as in the tab
+                before_proline: ramaClass(o.res) === 'pro',
             })),
         },
         bond_angles: angles.angleTypes.map(t => ({
@@ -2704,6 +2756,22 @@ const expandedBondGroups = new Set();
 const CHEVRON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708"/></svg>';
 
 /**
+ * Groups bonds by bond type and the names of the two atoms, so that e.g. the
+ * C–O of a ligand is not mixed with the backbone C–O. Sorted by descending size.
+ * @param {!Array<!Object>} bonds Bonds with `type` and `atoms` (two nodes).
+ * @return {!Array<{key: string, type: string, atoms: !Array<string>, items: !Array<!Object>}>} Groups.
+ */
+function groupBondsByAtoms(bonds) {
+    return d3.groups(bonds, b => `${b.type}|${b.atoms[0].label}–${b.atoms[1].label}`)
+        .map(([key, items]) => ({ key, type: items[0].type, atoms: [items[0].atoms[0].label, items[0].atoms[1].label], items }))
+        .sort((a, b) => d3.descending(a.items.length, b.items.length) || d3.ascending(a.key, b.key));
+}
+// Label of a bond group, e.g. "C–O (Backbone)".
+const bondGroupLabel = g => `${g.atoms.join('–')} (${BOND_TYPE_LABELS[g.type] || g.type})`;
+// Chains of a set of bonds; both atoms count (a disulfide bridge can join two chains).
+const bondChains = bonds => [...new Set(bonds.flatMap(b => b.atoms.map(a => a.chain.trim())))];
+
+/**
  * Key figures of a set of bonds.
  * @param {!Array<!Object>} bonds Bonds with `length` and `atoms`.
  * @return {{chains: string, count: number, mean: number, median: number,
@@ -2713,7 +2781,7 @@ function bondSummary(bonds) {
     const min = d3.min(bonds, b => b.length);
     const max = d3.max(bonds, b => b.length);
     return {
-        chains: [...new Set(bonds.map(b => chainId(b.atoms[0].chain)))].join(', '),
+        chains: bondChains(bonds).map(chainId).join(', '),
         count: bonds.length,
         mean: d3.mean(bonds, b => b.length),
         median: d3.median(bonds, b => b.length),
@@ -2735,9 +2803,7 @@ function renderBondGroups(graphData) {
     const bonds = graphData.edges
         .map(e => ({ ...e, atoms: [nodeById.get(e.source), nodeById.get(e.target)] }))
         .filter(b => b.atoms[0] && b.atoms[1]);
-    const groups = d3.groups(bonds, b => `${b.atoms[0].label}–${b.atoms[1].label}`)
-        .map(([key, items]) => ({ key, items, ...bondSummary(items) }))
-        .sort((a, b) => d3.descending(a.count, b.count) || d3.ascending(a.key, b.key));
+    const groups = groupBondsByAtoms(bonds).map(g => ({ ...g, ...bondSummary(g.items) }));
 
     const columns = [
         { label: gettext('Atome') }, { label: gettext('Ketten') },
@@ -2765,7 +2831,7 @@ function renderBondGroups(graphData) {
             .append('button').attr('type', 'button').attr('class', 'bond-toggle')
             .attr('aria-controls', detailsId)
             .html(CHEVRON_SVG);
-        toggle.append('span').text(group.key);
+        toggle.append('span').text(bondGroupLabel(group));
         summaryCells(summary, group);
 
         const details = body.append('tr').attr('class', 'bond-details').attr('id', detailsId);
@@ -3195,7 +3261,7 @@ function buildStatsExport(graphData, ensemble, modelLabel, filename) {
             min: s.min, max: s.max, delta: roundTo(s.delta, 3),
         };
     };
-    const chainsOf = items => [...new Set(items.map(b => b.atoms[0].chain.trim()))];
+    const chainsOf = bondChains;
     const selectedMin = bonds.length ? bonds[d3.leastIndex(bonds, b => b.length)] : null;
     const selectedMax = bonds.length ? bonds[d3.greatestIndex(bonds, b => b.length)] : null;
     const peptide = analyzePeptideBonds(graphData);
@@ -3257,10 +3323,9 @@ function buildStatsExport(graphData, ensemble, modelLabel, filename) {
                     from: roundTo(b.x0, 2), to: roundTo(b.x1, 2), count: b.count, share_percent: roundTo(b.share, 2),
                 })),
             },
-            by_atoms: d3.groups(bonds, b => `${b.atoms[0].label}–${b.atoms[1].label}`)
-                .sort((a, b) => d3.descending(a[1].length, b[1].length) || d3.ascending(a[0], b[0]))
-                .map(([, items]) => ({
-                    atoms: [items[0].atoms[0].label, items[0].atoms[1].label],
+            by_atoms: groupBondsByAtoms(bonds)
+                .map(({ type, atoms, items }) => ({
+                    atoms, type,
                     chains: chainsOf(items),
                     ...summary(items),
                     bonds: items.map(b => ({ length: b.length, atoms: b.atoms.map(exportAtom) })),
@@ -3636,7 +3701,7 @@ function buildStatsPdf(data, options = {}) {
     subTitle(gettext('Bindungen nach beteiligten Atomen'));
     table({
         head: [[gettext('Atome'), gettext('Ketten'), num(gettext('Anzahl')), num(gettext('Durchschnitt (Å)')), num(gettext('Median (Å)')), num(gettext('Min (Å)')), num(gettext('Max (Å)')), num(gettext('Δ Max − Min (Å)'))]],
-        body: b.by_atoms.map(grp => [grp.atoms.join('–'), grp.chains.map(c => c || '–').join(', '), formatInt(grp.count),
+        body: b.by_atoms.map(grp => [bondGroupLabel(grp), grp.chains.map(c => c || '–').join(', '), formatInt(grp.count),
             formatLength(grp.mean), formatLength(grp.median), formatLength(grp.min), formatLength(grp.max), formatLength(grp.delta)]),
         foot: b.count ? [[gettext('Bindungen gesamt'), '', num(formatInt(b.count)), num(formatLength(b.mean)), num(formatLength(b.median)),
             num(formatLength(b.min)), num(formatLength(b.max)), num(formatLength(b.delta))]] : undefined,
@@ -3653,7 +3718,7 @@ function buildStatsPdf(data, options = {}) {
             head: [[num(gettext('Länge (Å)')), num(gettext('Abw. vom Ø (Å)')), gettext('Kette'), gettext('Pos.'),
                     gettext('Atom-Nr.'), gettext('Aminosäure'), '']],
             body: b.by_atoms.flatMap(grp => [
-                [{ content: `${grp.atoms.join('–')} (${formatInt(grp.count)})`, colSpan: 7, styles: { fontStyle: 'bold' } }],
+                [{ content: `${bondGroupLabel(grp)}: ${formatInt(grp.count)}`, colSpan: 7, styles: { fontStyle: 'bold' } }],
                 ...grp.bonds.map(bond => {
                     const d = describeBond(bond.atoms.map(nodeLikeAtom));
                     const extreme = grp.min === grp.max ? null
@@ -3726,7 +3791,7 @@ function buildStatsPdf(data, options = {}) {
             head: [[gettext('Kette'), gettext('Pos.'), gettext('Aminosäuren'), num('ω'), gettext('Art')]],
             body: ang.omega.non_trans.map(o => [o.to.chain || '–', `${o.from.position}–${o.to.position}`,
                 `${o.from.residue}–${o.to.residue}`, formatAngle(o.omega),
-                o.kind === 'cis' ? (o.to.residue === 'PRO' ? gettext('cis (vor Prolin)') : gettext('cis')) : gettext('verdreht')]),
+                o.kind === 'cis' ? (o.before_proline ? gettext('cis (vor Prolin)') : gettext('cis')) : gettext('verdreht')]),
             columnStyles: right([3]),
             tableWidth: contentW * 0.75,
         });
@@ -3805,11 +3870,32 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
     const ensembleEl = document.getElementById('bond-ensemble');
     let bondEnsemble = ensembleEl ? JSON.parse(ensembleEl.textContent) : null;
 
+    // localStorage can be unavailable (storage blocked, some private modes) and then throws;
+    // settings are then simply not remembered.
+    const storedSetting = key => { try { return localStorage.getItem(key); } catch { return null; } };
+    const storeSetting = (key, value) => { try { localStorage.setItem(key, value); } catch { /* ignore */ } };
+
+    // Shows an error to the user (base.html); details go to the console.
+    const reportError = (message, err) => {
+        console.error(message, err);
+        window.showClientMessage?.(message);
+    };
+
     // Bond colouring and layout of the graph, remembered across visits.
-    let activeStyle  = localStorage.getItem('bondStyle') || 'gradient';
-    let activeLayout = localStorage.getItem('layout')    || 'schematic';
+    let activeStyle  = storedSetting('bondStyle') || 'gradient';
+    let activeLayout = storedSetting('layout')    || 'schematic';
 
     const canvas = setupCanvas();
+
+    showResidueInGraph = target => {
+        // Atom nodes (reference outliers) are resolved to their residue in the current data.
+        const res = target.residue_seq === undefined ? target
+            : graphData.residues.find(r => residueKey(r) === nodeResidueKey(target));
+        if (!res) return;
+        jumpToResidue(canvas, res);
+        // The graph tab performs the pending jump once it is shown.
+        bootstrap.Tab.getOrCreateInstance(document.getElementById('tab-graph')).show();
+    };
 
     // Re-renders the graph tab with the current data, style and layout.
     function redraw(animate = true) {
@@ -3833,6 +3919,9 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
     // Model of the currently loaded data (the select changes before loading finishes).
     let loadedModelLabel = modelLabel();
 
+    // Values of the selects that belong to the currently shown data; restored if loading fails.
+    let loadedSelection = selectable.map(s => s.value);
+
     // Loads graph data for the selected combination of model and conformation from
     // the `/pdb/<pk>/models/` endpoint and re-renders all tabs; after a conformation
     // change also the bond ensemble over all models (it depends on the altloc).
@@ -3845,8 +3934,9 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
         selectable.forEach(s => { s.disabled = true; });
         try {
             const resp = await fetch(`${selectsWrap.dataset.modelUrl}?${params}`);
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const data = await resp.json();
+            const data = await resp.json().catch(() => ({}));
+            // The server explains client errors (400) in data.error.
+            if (!resp.ok) throw Object.assign(new Error(`HTTP ${resp.status}`), { userMessage: data.error });
             graphData = data.graph;
             if (data.ensemble) bondEnsemble = data.ensemble;
             loadedModelLabel = modelLabel();
@@ -3856,8 +3946,11 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
             renderLegend(graphData.nodes);
             renderBondStats(graphData, bondEnsemble, loadedModelLabel);
             renderAngles(canvas, graphData);
+            loadedSelection = selectable.map(s => s.value);
         } catch (err) {
-            console.error('Model/Konformation konnte nicht geladen werden:', err);
+            // Keep the selects in line with the data that is still shown.
+            selectable.forEach((s, i) => { s.value = loadedSelection[i]; });
+            reportError(err.userMessage || gettext('Model bzw. Konformation konnte nicht geladen werden.'), err);
         } finally {
             selectable.forEach(s => { s.disabled = false; });
         }
@@ -3880,10 +3973,8 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
         // "Individual bonds" checkbox for the PDF; the choice is remembered in the browser
         const pdfBondList = document.getElementById('export-pdf-bonds');
         if (pdfBondList) {
-            try { pdfBondList.checked = localStorage.getItem('pdfBondList') === '1'; } catch { /* no storage: off */ }
-            pdfBondList.addEventListener('change', () => {
-                try { localStorage.setItem('pdfBondList', pdfBondList.checked ? '1' : '0'); } catch { /* ignore */ }
-            });
+            pdfBondList.checked = storedSetting('pdfBondList') === '1';
+            pdfBondList.addEventListener('change', () => storeSetting('pdfBondList', pdfBondList.checked ? '1' : '0'));
         }
         pdfButton.addEventListener('click', async () => {
             pdfButton.disabled = true;
@@ -3893,7 +3984,7 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
                 const data = exportData();
                 buildStatsPdf(data, { bondList: pdfBondList?.checked }).save(`${exportBaseName(filename, data.model)}.pdf`);
             } catch (err) {
-                console.error('PDF konnte nicht erstellt werden:', err);
+                reportError(gettext('Das PDF konnte nicht erstellt werden.'), err);
             } finally {
                 pdfButton.disabled = false;
             }
@@ -3917,7 +4008,7 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
                     downloadBlob(await histogramBlob(graphData.edges, format),
                         `${exportBaseName(filename, loadedModelLabel, gettext('histogramm'))}.${extension}`);
                 } catch (err) {
-                    console.error('Histogramm konnte nicht exportiert werden:', err);
+                    reportError(gettext('Das Histogramm konnte nicht exportiert werden.'), err);
                 } finally {
                     button.disabled = false;
                 }
@@ -3945,14 +4036,14 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
     // Global handlers for the onclick attributes of the toolbar buttons in graph.html.
     window.setBondStyle = function (style) {
         activeStyle = style;
-        localStorage.setItem('bondStyle', style);
+        storeSetting('bondStyle', style);
         updateButtons();
         redraw();
     };
 
     window.setLayout = function (layout) {
         activeLayout = layout;
-        localStorage.setItem('layout', layout);
+        storeSetting('layout', layout);
         updateButtons();
         redraw();
     };
@@ -3982,7 +4073,7 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
             try {
                 if (ramaView.type) await loadRamaRegions();
             } catch (err) {
-                console.error('Ramachandran-Bereiche konnten nicht geladen werden:', err);
+                reportError(gettext('Die Ramachandran-Bereiche konnten nicht geladen werden.'), err);
             }
             if (canvas.ramaAngles) renderRamachandranPlot(canvas, canvas.ramaAngles);
         });
@@ -3997,7 +4088,7 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
                     downloadBlob(await ramachandranBlob(graphData, format),
                         `${exportBaseName(anglesExportBar.dataset.filename, loadedModelLabel, gettext('ramachandran'))}.${extension}`);
                 } catch (err) {
-                    console.error('Ramachandran-Plot konnte nicht exportiert werden:', err);
+                    reportError(gettext('Der Ramachandran-Plot konnte nicht exportiert werden.'), err);
                 } finally {
                     button.disabled = false;
                 }

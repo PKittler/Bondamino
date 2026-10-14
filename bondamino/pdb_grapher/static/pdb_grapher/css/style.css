@@ -79,6 +79,12 @@
     font-size: 1.1rem;
 }
 
+/* ===== Client-side messages (base.html, showClientMessage) ===== */
+.client-messages {
+    z-index: 1090; /* above the sticky navbar and dialogs */
+    width: min(420px, 100%);
+}
+
 /* ===== Upload dialog (start page) ===== */
 .border-dashed {
     border-style: dashed !important;
@@ -302,6 +308,10 @@ input[type="file"] {
 .rama-gly { fill: var(--rama-gly); }
 .rama-pro { fill: var(--rama-pro); }
 .rama-frame { stroke: var(--bs-border-color); }
+/* Table rows that jump to their residue in the graph (outlier tables) */
+.residue-link { cursor: pointer; }
+.residue-link:hover > td, .residue-link:focus-visible > td { --bs-table-bg-state: var(--bs-primary-bg-subtle); }
+
 .rama-point { cursor: pointer; stroke: var(--bs-body-bg); stroke-width: 0.8; }
 .rama-point.selected { stroke: var(--bs-body-color); stroke-width: 2; }
 .rama-point.rama-outlier { stroke: var(--z-outlier); stroke-width: 1.6; }

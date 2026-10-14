@@ -131,7 +131,7 @@ The link is valid for 24 hours and works only once. If it has expired, see
 [Troubleshooting](#troubleshooting).
 
 Next time, open the address of your server, enter your **Username** and **Password** and click
-**Log in**.
+**Sign in**.
 
 > Tip: The language and the light/dark display can already be changed on the sign-in page (top
 > right). After signing in, both are in the account menu, see
@@ -247,8 +247,9 @@ water appear as `?`.
 
 - **Schematic**: a fixed grid. Every amino acid looks the same, so the graph is easy to read.
 - **Proportional**: the drawn length of each bond is proportional to its real length in Å.
-  Unusually long or short bonds stand out. Note: this is still a 2D drawing, not the 3D
-  structure.
+  Unusually long or short bonds stand out. This holds for the backbone, the side chains and the
+  peptide bonds; ligand bonds and the disulfide brackets are not drawn to scale. Note: this is
+  still a 2D drawing, not the 3D structure.
 
 Bondamino remembers your choice of colour and layout in this browser.
 
@@ -289,21 +290,25 @@ Further down in the **Bonds** section:
 - **Shortest and longest bond**: in all models and in the selected model, compared with the
   mean and median of the same bond over all models.
 - **Distribution of bond lengths**: a histogram with 0.01 Å bins.
-- **Bonds by atoms involved**: all bonds grouped by atom pair (for example C–N, CA–CB) with
-  count, mean, median, minimum and maximum. Click a row to see every single bond.
+- **Bonds by atoms involved**: all bonds grouped by bond type and atom pair, for example
+  "C–N (peptide bond)" or "CA–CB (side chain)", with count, mean, median, minimum and maximum.
+  A C–O in a ligand is therefore counted separately from the backbone C–O. Click a row to see
+  every single bond.
 
 ### Step 6: Look at the outliers
 
 1. In **Statistics → Bonds**, find the table **Outliers (|Z| > 4)**. It lists every outlier with
    **Atoms**, **Chain**, **Pos.**, **Amino acid**, length, reference and **Z**, sorted from the
    largest deviation down. If there are no outliers, the table is not shown.
-2. Note the chain and position of an outlier you want to inspect, for example chain A,
-   position 1.
-3. Click the tab **Graph** and click **Reference** in the toolbar.
-4. Click the letter at that position in the sequence bar. The graph jumps to the amino acid.
-5. Hold the mouse over the red bond to see its length, reference and Z-score.
+2. Click the row of an outlier you want to inspect, for example chain A, position 1 (or move
+   to the row with the Tab key and press Enter). Bondamino switches to the tab **Graph** and
+   scrolls to this amino acid, which is now selected.
+3. Click **Reference** in the toolbar, so that the outlier bond is drawn in red.
+4. Hold the mouse over the red bond to see its length, reference and Z-score.
 
-The outlier tables themselves are not clickable; use the sequence bar to get there.
+The other outlier tables in **Statistics** (bond-angle outliers, Ramachandran outliers and
+peptide bonds that are not trans) work the same way. You can also click a letter in the
+sequence bar to jump to any amino acid.
 
 **What can an outlier mean?** Be careful with conclusions. An outlier is a hint to look
 closer, not a proof of an error. Common causes are:
@@ -346,7 +351,7 @@ The regions come from the Top8000 data set (Richardson Lab), the same basis as i
 1. Click **Statistics** and scroll to the section **Angles**.
 2. **Ramachandran evaluation**: the number of **Assessed amino acids** and how many are
    **Favoured**, **Allowed** and **Outliers**, also per category. A list of all Ramachandran
-   outliers follows.
+   outliers follows; click a row to see the amino acid in the graph.
 3. **cis and trans peptide bonds**: the number of trans, cis and twisted peptide bonds. Bonds
    that are not trans are listed. A cis bond that is not before a proline is highlighted in
    red, because it is rare.
@@ -420,8 +425,10 @@ list.
 1. Open the file and click the tab **Notes**.
 2. Write your note in the text field, for example: "Chain A, Lys 1: CA–CB is 2.02 Å (Z ≈ 49).
    Probably a coordinate error in this early model."
-3. Under **Visible to**, choose **Only me** for a private note, or **Working groups** and then
-   tick the group(s) that may read it.
+3. Under **Visible to**, choose **Only me** for a private note, or **For working groups** and
+   then tick the group(s) that may read it. Only your groups in which the file is shared are
+   offered, because nobody else could open the file. If there are none, you see "The file is not
+   shared with any of your working groups."; share the file with your group first.
 4. Click **Save note**. The note appears in the list below with your name and the date.
 
 Your colleagues see the note when they open the file. On the start page, the column
@@ -476,18 +483,23 @@ solution, and the differences between them show how well each part is defined. E
 4. In **Statistics → Bonds**, compare the RMSZ and the outliers between models. Write the
    values down or export a CSV per model.
 5. In **Shortest and longest bond**, the rows under **All models** show the extreme bonds of
-   the whole ensemble and the model they come from. The columns **Average (Å)** and
+   the whole ensemble and the model they come from. The columns **Mean (Å)** and
    **Median (Å)** compare each bond with the same bond in all models; the number in brackets
    is the difference.
 
-**The averaged model.** Choose **Average** to see each bond length averaged over all models.
-Use it to judge the typical bond lengths of the ensemble.
+**The averaged model.** Choose **Average** to see the geometry averaged over all models: each
+bond length, bond angle and torsion angle (φ, ψ, ω) is measured in every model and then
+averaged. Use it to judge the typical geometry of the ensemble. Torsion angles are averaged on
+the circle, so −179° and 179° give 180°, not 0°. The Ramachandran evaluation of the averaged
+model uses the averaged φ and ψ. In `1D3Z`, all 74 assessed amino acids are favoured in the
+averaged model, as in most single models (models 7 and 8 each have one amino acid in the
+allowed region).
 
-Be careful with angles in the averaged model: φ, ψ and the bond angles are calculated from
-averaged coordinates. In flexible regions, averaging coordinates gives a shape that no model
-has. In `1D3Z`, all 74 assessed amino acids are favoured in each of the first models, but in
-the averaged model glycine 75 in the flexible C-terminal tail becomes a Ramachandran outlier.
-For angles, look at the individual models.
+An average hides the spread between the models. In flexible regions, such as the C-terminal
+tail of ubiquitin, the angles can differ a lot from model to model even if their mean looks
+normal. There, also look at the individual models. The coordinates shown in the **Data** tab
+for **Average** are plain means of the model coordinates; Bondamino does not calculate any
+length or angle from them.
 
 The B-factor column of NMR files does not describe thermal motion as in crystal structures,
 and it is often zero or used for other values. Do not interpret B-factor colouring for NMR
@@ -526,7 +538,7 @@ gaps. Without knowing them, you might misread the sequence or the statistics.
 1. Look at the sequence bar. A chain break is shown as a red vertical line between two
    letters. The tooltip says, for example, "Chain break: no peptide bond between SER 127 and
    THR 137 (distance 10.7 Å)".
-2. In **Statistics → Bonds → Peptide bonds**, the row **Non-existent** (Chain breaks) counts
+2. In **Statistics → Bonds → Peptide bonds**, the row **Missing** (Chain breaks) counts
    all gaps. **Theoretically possible** is the number of pairs of consecutive amino acids in
    the same chain.
 
@@ -566,7 +578,8 @@ proline. A cis bond before another amino acid is rare and should be supported by
    says, for example, "cis peptide bond between TYR 140 and PRO 141 (ω = 0.0°)".
 2. **Statistics → Angles → cis and trans peptide bonds** gives the counts and lists all
    peptide bonds that are not trans, with ω and **Type** (**cis**, **cis (before proline)** or
-   **twisted**). cis bonds that are not before a proline are highlighted.
+   **twisted**). A modified proline counts as proline. cis bonds that are not before a proline
+   are highlighted. Click a row to see the peptide bond in the graph.
 
 Example: `1HZH` has 10 cis peptide bonds, all before a proline.
 
@@ -744,8 +757,8 @@ when a file was shared with the wrong group.
 ### How do I write and manage notes?
 
 1. Open a file and click **Notes**.
-2. Write a note and choose **Visible to**: **Only me**, or **Working groups** plus the groups.
-   Click **Save note**.
+2. Write a note and choose **Visible to**: **Only me**, or **For working groups** plus the
+   groups (only your groups in which the file is shared are offered). Click **Save note**.
 3. To change a note you wrote, click its pencil button (**Edit note**), change the text or the
    visibility, and click **Save**. The note is then marked "edited".
 4. To delete a note you wrote, click its bin button (**Delete note**) and confirm.
@@ -769,7 +782,7 @@ Click the round person icon at the top right. The account menu shows your name a
 - **Language**: the available languages (only shown if the administrator has set up more than
   one). The page switches immediately.
 - **Display**: **Light** or **Dark**. The page switches immediately.
-- **Log out**.
+- **Sign out**.
 
 On the **Account** page you find:
 
@@ -777,9 +790,13 @@ On the **Account** page you find:
   maintained by the administrator. Ask them to correct anything.
 - **Change password**: enter your current password, then the new one twice, and click
   **Change password**. You stay signed in.
-- **Settings**: **Language** and **Display**. Click **Save**.
+- **Settings**: **Language**, **Display** and **Time zone**. Click **Save**. Dates and times
+  (upload time, latest note, notes) are then shown in your time zone. **Same as the server (…)**
+  uses the server's default time zone, named in brackets. The **Language** field is missing if
+  the administrator has not set up any language.
 
-Your language and display are saved with your account and apply on every computer you use.
+Your language, display and time zone are saved with your account and apply on every computer
+you use.
 
 Remember that the language also changes the number format of the CSV exports (see
 [How do I prepare data for a spreadsheet?](#how-do-i-prepare-data-for-a-spreadsheet)).
@@ -837,8 +854,18 @@ The file has only one model or no alternate conformations. The boxes are also gr
 moment while a new model loads.
 
 **Nothing happens when I choose another model, or a download does not start.**
-Wait a few seconds; large structures need time. Then reload the page. If the problem persists,
-tell your administrator which file and which model you used.
+Wait a few seconds; large structures need time. If loading or an export fails, a red message
+appears at the top right, for example "The model or conformation could not be loaded." or "The
+PDF could not be created.", and the model box returns to the model still shown. Reload the page
+and try again. If the problem persists, tell your administrator which file and which model you
+used.
+
+**Dates and times are off by some hours.**
+Choose your time zone under **Account → Settings → Time zone** and click **Save**.
+
+**Bondamino does not remember my colour and layout choice.**
+Your browser blocks local storage for this site (for example in some private windows).
+Everything works, but the choice is not remembered. Allow site data for the Bondamino address.
 
 **The CSV opens with all values in one column.**
 See the decimal separator table in

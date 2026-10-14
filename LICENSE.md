@@ -108,7 +108,7 @@ contained in the source code, but they are contained in the Docker image.
 |---|---|---|---|
 | [Django](https://www.djangoproject.com/) | Web framework | BSD-3-Clause | all |
 | asgiref, sqlparse | Parts of Django | BSD-3-Clause | all |
-| tzdata | Time zone data (Windows only) | Apache-2.0 | all, on Windows |
+| tzdata | Time zone database (for the time zone setting) | Apache-2.0 | all |
 | [WhiteNoise](https://whitenoise.readthedocs.io/) | Delivers CSS, JavaScript and fonts | MIT | all |
 | [gunicorn](https://gunicorn.org/) | Web server (Linux/macOS, Docker) | MIT | all, not on Windows |
 | [waitress](https://github.com/Pylons/waitress) | Web server on Windows (optional) | ZPL 2.1 | manually, see [INSTALL.md](INSTALL.md) |

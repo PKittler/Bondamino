@@ -22,6 +22,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import zoneinfo
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -185,8 +186,17 @@ class Command(BaseCommand):
                                 current.get('HTTPS', '0') == '1')
         debug = self.ask_yes_no('Development mode (DEBUG)? Never use it on a public server',
                                 current.get('DEBUG', '0') == '1')
-        time_zone = self.ask('Time zone', current.get('TIME_ZONE', 'Europe/Berlin'))
-        return {'ALLOWED_HOSTS': hosts.replace(' ', ''), 'HTTPS': '1' if https else '0',
+        while True:
+            time_zone = self.ask('Default time zone (IANA name, e.g. Europe/Berlin; users can choose their own)',
+                                 current.get('TIME_ZONE', 'UTC'))
+            if time_zone in zoneinfo.available_timezones():
+                break
+            self.stdout.write(self.style.WARNING(f'Unknown time zone "{time_zone}".'))
+        hosts = [host for host in hosts.replace(' ', '').split(',') if host]
+        # localhost and 127.0.0.1 are both used for local access; Django checks the exact host name
+        if 'localhost' in hosts and '127.0.0.1' not in hosts:
+            hosts.append('127.0.0.1')
+        return {'ALLOWED_HOSTS': ','.join(hosts), 'HTTPS': '1' if https else '0',
                 'DEBUG': '1' if debug else '0', 'TIME_ZONE': time_zone}
 
     def configure_email(self, current):

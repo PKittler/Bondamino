@@ -10,7 +10,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.db import transaction
 from django.utils.translation import gettext, gettext_lazy as _, ngettext
 
-from .forms import AdminLoginForm, InvitationUserForm, send_invitation
+from .forms import AdminLoginForm, InvitationUserForm, PDBFileAdminForm, send_invitation
 
 from .models import Language, Note, PDBFile, UserSettings, WorkGroup
 
@@ -43,6 +43,7 @@ class WorkGroupAdmin(admin.ModelAdmin):
 @admin.register(PDBFile)
 class PDBFileAdmin(admin.ModelAdmin):
     """PDB files; the admin can see and change all of them, independent of visibility."""
+    form = PDBFileAdminForm
     list_display = ('name', 'uploaded_by', 'uploaded_at', 'personal')
     list_filter = ('groups', 'personal')
     search_fields = ('name', 'uploaded_by__username')

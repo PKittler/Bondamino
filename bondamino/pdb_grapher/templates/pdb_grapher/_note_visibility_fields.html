@@ -24,7 +24,7 @@ Context:
                 <label class="form-check-label" for="{{ checkbox.id_for_label }}">{% blocktranslate with group=checkbox.choice_label %}Arbeitsgruppe {{ group }}{% endblocktranslate %}</label>
             </div>
         {% empty %}
-            <p class="text-body-secondary mb-0">{% translate 'Du bist keiner Arbeitsgruppe zugeordnet.' %}</p>
+            <p class="text-body-secondary mb-0">{% translate 'Die Datei ist für keine deiner Arbeitsgruppen freigegeben.' %}</p>
         {% endfor %}
     </div>
 </fieldset>

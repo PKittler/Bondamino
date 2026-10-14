@@ -773,6 +773,19 @@ def _dihedral(p0, p1, p2, p3):
     return -math.degrees(math.atan2(dot(m, n2), dot(n1, n2)))
 
 
+def _bond_angle(a, b, c):
+    """Returns the bond angle a–b–c in degrees (0 … 180), same as in the browser.
+
+    Args:
+        a: Atom data dict (with 'x', 'y', 'z'); likewise b (the centre atom) and c.
+    """
+    u = [a['x'] - b['x'], a['y'] - b['y'], a['z'] - b['z']]
+    v = [c['x'] - b['x'], c['y'] - b['y'], c['z'] - b['z']]
+    norm = math.sqrt(sum(x * x for x in u)) * math.sqrt(sum(x * x for x in v))
+    cos = sum(x * y for x, y in zip(u, v)) / norm
+    return math.degrees(math.acos(max(-1.0, min(1.0, cos))))
+
+
 def _angle_reference(residues, keys, ends, center):
     """Returns the reference of the bond angle ends[0]–center–ends[1].
 
@@ -921,23 +934,27 @@ def ramachandran_region(rama_type, value):
     return 'allowed' if value >= RAMA_ALLOWED[rama_type] else 'outlier'
 
 
-def evaluate_ramachandran(graph):
+def evaluate_ramachandran(graph, dihedral=None):
     """Adds Ramachandran data to every residue of a graph.
 
     Works on the graph's nodes (not on `parse_pdb()` output), so that it also applies to
-    the averaged coordinates of `build_average_graph()`. φ and ψ require peptide bonds to
+    the averaged model of `build_average_graph()`, which passes the dihedral angles
+    averaged over the models as `dihedral`. φ and ψ require peptide bonds to
     both neighbours. The category follows MolProbity: 'glycine', 'cis-proline' or
     'trans-proline', 'pre-proline' (residue before a proline), 'ile-val' or 'general';
     modified amino acids are categorised by their parent.
 
     Args:
         graph: Graph dict as built by `build_graph()`; modified in place.
+        dihedral: Function (node, node, node, node) -> degrees; default: computed from
+            the node coordinates.
 
     Returns:
         The same graph, where each residue has 'rama' set to {'phi', 'psi' (degrees,
         1 decimal), 'type' (category), 'value', 'region' ('favored', 'allowed' or
         'outlier')}, or None if φ or ψ is undefined (chain end, chain break, missing atoms).
     """
+    dihedral = dihedral or _dihedral
     nodes = {n['id']: n for n in graph['nodes']}
     peptides = {(e['source'], e['target']) for e in graph['edges'] if e['type'] == 'peptide'}
     residues = graph['residues']
@@ -955,14 +972,14 @@ def evaluate_ramachandran(graph):
         n, ca, c = atom(res, 'N'), atom(res, 'CA'), atom(res, 'C')
         if not (n and ca and c and prev and next_ and linked(prev, res) and linked(res, next_)):
             continue
-        phi = _dihedral(atom(prev, 'C'), n, ca, c)
-        psi = _dihedral(n, ca, c, atom(next_, 'N'))
+        phi = dihedral(atom(prev, 'C'), n, ca, c)
+        psi = dihedral(n, ca, c, atom(next_, 'N'))
         name = res['parent'] or res['name']
         if name == 'GLY':
             rama_type = 'glycine'
         elif name == 'PRO':
             prev_ca = atom(prev, 'CA')
-            cis = prev_ca is not None and abs(_dihedral(prev_ca, atom(prev, 'C'), n, ca)) < RAMA_CIS_MAX_OMEGA
+            cis = prev_ca is not None and abs(dihedral(prev_ca, atom(prev, 'C'), n, ca)) < RAMA_CIS_MAX_OMEGA
             rama_type = 'cis-proline' if cis else 'trans-proline'
         elif (next_['parent'] or next_['name']) == 'PRO':
             rama_type = 'pre-proline'
@@ -1065,15 +1082,52 @@ def build_graph(residues):
 AVERAGED_ATOM_FIELDS = {'x': 3, 'y': 3, 'z': 3, 'occupancy': 2, 'temp_factor': 2}
 
 
-def build_average_graph(file_path, models, altloc=None):
-    """Builds the graph of an ensemble whose bond lengths are averaged over the models.
+def _angle_keys(graph):
+    """Lists the bond angles and peptide torsions of a graph, as tuples of atom IDs.
 
-    Atoms and bonds are taken from the first model; each bond is averaged over all
-    models in which both atoms occur (a peptide bond is skipped in models where it is a
-    chain break). The unrounded distances are averaged and only the result is rounded.
-    Likewise, coordinates, occupancy and B factor of each atom are averaged over the
-    models in which it occurs, and φ/ψ are computed from the averaged coordinates. Bond
-    angle references and residue data are those of the first model.
+    Args:
+        graph: Graph dict as built by `build_graph()`.
+
+    Returns:
+        (angles, torsions): `angles` are (end atom, centre atom, end atom) for every pair of
+        bonding partners of an atom (end atoms in sorted order); `torsions` are the four atoms
+        of φ, ψ and ω around every peptide bond (C(i−1)–N–CA–C, N–CA–C–N(i+1) and
+        CA–C–N–CA).
+    """
+    neighbors = {}
+    for e in graph['edges']:
+        neighbors.setdefault(e['source'], []).append(e['target'])
+        neighbors.setdefault(e['target'], []).append(e['source'])
+    angles = []
+    for center, partners in neighbors.items():
+        for i, a in enumerate(partners):
+            for c in partners[i + 1:]:
+                first, last = sorted((a, c))
+                angles.append((first, center, last))
+    torsions = set()
+    for e in graph['edges']:
+        if e['type'] != 'peptide':
+            continue
+        # C(i)–N(i+1); the other atoms follow from the atom IDs ("<chain>_<pos>_<name>").
+        c_id, n_id = e['source'], e['target']
+        prev, res = c_id.rsplit('_', 1)[0], n_id.rsplit('_', 1)[0]
+        torsions.add((f'{prev}_CA', c_id, n_id, f'{res}_CA'))       # ω
+        torsions.add((c_id, n_id, f'{res}_CA', f'{res}_C'))         # φ of residue i+1
+        torsions.add((f'{prev}_N', f'{prev}_CA', c_id, n_id))       # ψ of residue i
+    return angles, sorted(torsions)
+
+
+def build_average_graph(file_path, models, altloc=None):
+    """Builds the graph of an ensemble whose geometry is averaged over the models.
+
+    Atoms and bonds are taken from the first model. Every bond length, bond angle and
+    torsion angle (φ, ψ, ω) is computed in each model and then averaged over all models in
+    which its atoms occur; a model is skipped for a value if one of its peptide bonds is a
+    chain break there. Torsion angles are averaged as circular means (−179° and 179° average
+    to 180°, not 0°). The unrounded values are averaged and only the result is rounded.
+    Coordinates, occupancy and B factor of each atom are plain means over the models (for
+    tooltips and the B-factor colouring); geometry is not computed from them, because
+    averaged coordinates distort lengths and angles when the models differ.
 
     Args:
         file_path: Path of the PDB file.
@@ -1082,15 +1136,23 @@ def build_average_graph(file_path, models, altloc=None):
         altloc: Preferred alternate conformation, passed to `parse_pdb()`.
 
     Returns:
-        A graph dict as returned by `build_graph()`.
+        A graph dict as returned by `build_graph()`, with residue 'rama' computed from the
+        averaged φ/ψ, plus 'averaged': {'bond_angles': {"<end>|<centre>|<end>": degrees},
+        'torsions': {"<a>|<b>|<c>|<d>": degrees}}, which the browser uses instead of
+        computing angles from coordinates.
     """
     if not models:
         return build_graph(parse_pdb(file_path, altloc=altloc))
 
     base = build_graph(parse_pdb(file_path, model_id=models[0], altloc=altloc))
-    # Running sums and counts per edge (same index as base['edges']) and per atom field.
+    angle_keys, torsion_keys = _angle_keys(base)
+    peptides = {frozenset((e['source'], e['target'])) for e in base['edges'] if e['type'] == 'peptide'}
+    # Running sums and counts per edge (same index as base['edges']), per angle and per atom field;
+    # torsions as sums of sine and cosine for the circular mean.
     sums = [0.0] * len(base['edges'])
     counts = [0] * len(base['edges'])
+    angle_sums = {key: [0.0, 0] for key in angle_keys}
+    torsion_sums = {key: [0.0, 0.0, 0] for key in torsion_keys}
     atom_sums = {node['id']: {f: [0.0, 0] for f in AVERAGED_ATOM_FIELDS} for node in base['nodes']}
     for model_id in models:
         residues = parse_pdb(file_path, model_id=model_id, altloc=altloc)
@@ -1099,6 +1161,15 @@ def build_average_graph(file_path, models, altloc=None):
             for (chain_id, res_seq, i_code, _), res_atoms in residues.items()
             for atom_name, atom in res_atoms.items()
         }
+        # Peptide bonds that are chain breaks in this model (as in _iter_bonds()).
+        broken = {pair for pair in peptides
+                  if all(a in atoms for a in pair) and _distance(*(atoms[a] for a in pair)) > MAX_PEPTIDE_BOND_LENGTH}
+
+        def usable(key):
+            """Whether all atoms of `key` exist in this model and no bond between them is broken."""
+            return (all(a in atoms for a in key)
+                    and not any(frozenset(pair) in broken for pair in zip(key, key[1:])))
+
         for i, edge in enumerate(base['edges']):
             a1, a2 = atoms.get(edge['source']), atoms.get(edge['target'])
             if a1 and a2:
@@ -1108,6 +1179,16 @@ def build_average_graph(file_path, models, altloc=None):
                     continue
                 sums[i] += length
                 counts[i] += 1
+        for key, acc in angle_sums.items():
+            if usable(key):
+                acc[0] += _bond_angle(*(atoms[a] for a in key))
+                acc[1] += 1
+        for key, acc in torsion_sums.items():
+            if usable(key):
+                rad = math.radians(_dihedral(*(atoms[a] for a in key)))
+                acc[0] += math.sin(rad)
+                acc[1] += math.cos(rad)
+                acc[2] += 1
         for node_id, fields in atom_sums.items():
             atom = atoms.get(node_id)
             if not atom:
@@ -1124,8 +1205,19 @@ def build_average_graph(file_path, models, altloc=None):
         for field, (total, count) in atom_sums[node['id']].items():
             if count:
                 node[field] = round(total / count, AVERAGED_ATOM_FIELDS[field])
-    # Recompute φ/ψ from the averaged coordinates.
-    return evaluate_ramachandran(base)
+    mean_torsions = {key: math.degrees(math.atan2(sin, cos))
+                     for key, (sin, cos, count) in torsion_sums.items() if count}
+    base['averaged'] = {
+        'bond_angles': {'|'.join(key): round(total / count, 2) for key, (total, count) in angle_sums.items() if count},
+        'torsions': {'|'.join(key): round(value, 2) for key, value in mean_torsions.items()},
+    }
+
+    def mean_dihedral(*nodes):
+        """Averaged torsion angle of four nodes; from the averaged coordinates if not available."""
+        value = mean_torsions.get(tuple(n['id'] for n in nodes))
+        return _dihedral(*nodes) if value is None else value
+
+    return evaluate_ramachandran(base, dihedral=mean_dihedral)
 
 
 def _bond_atom(residues, node_id):

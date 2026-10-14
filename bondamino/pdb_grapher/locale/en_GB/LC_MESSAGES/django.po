@@ -3,8 +3,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Bondamino\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-14 20:32+0000\n"
-"PO-Revision-Date: 2026-10-14 20:32+0000\n"
+"POT-Creation-Date: 2026-10-14 22:52+0000\n"
+"PO-Revision-Date: 2026-10-14 22:52+0000\n"
 "Last-Translator: \n"
 "Language-Team: English (United Kingdom)\n"
 "Language: en_GB\n"
@@ -13,35 +13,35 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: admin.py:53 models.py:67
+#: admin.py:67 models.py:129
 msgid "Arbeitsgruppe"
 msgstr "Working group"
 
-#: admin.py:54 forms.py:141 forms.py:236 models.py:68 models.py:96
-#: templates/pdb_grapher/account.html:20
+#: admin.py:68 forms.py:208 forms.py:333 models.py:130 models.py:180
+#: templates/pdb_grapher/account.html:30
 msgid "Arbeitsgruppen"
 msgstr "Working groups"
 
-#: admin.py:23 models.py:62
+#: admin.py:31 models.py:124
 msgid "Mitglieder"
 msgstr "Members"
 
-#: admin.py:89
+#: admin.py:108
 msgid "Passwort festgelegt"
 msgstr "Password set"
 
-#: admin.py:109
+#: admin.py:136
 msgid "Einladung erneut senden"
 msgstr "Resend invitation"
 
-#: admin.py:114
+#: admin.py:145
 #, python-format
 msgid "%(count)d Einladung wurde gesendet."
 msgid_plural "%(count)d Einladungen wurden gesendet."
 msgstr[0] "%(count)d invitation has been sent."
 msgstr[1] "%(count)d invitations have been sent."
 
-#: admin.py:119
+#: admin.py:150
 #, python-format
 msgid ""
 "%(count)d User hat bereits ein Passwort, keine E-Mail-Adresse oder ist "
@@ -55,44 +55,48 @@ msgstr[1] ""
 "%(count)d users already have a password, have no email address or are "
 "inactive."
 
-#: admin.py:97
+#: admin.py:122
 #, python-format
 msgid "Die Einladung an %(email)s konnte nicht gesendet werden: %(error)s"
 msgstr "The invitation to %(email)s could not be sent: %(error)s"
 
-#: admin.py:107
+#: admin.py:134
 #, python-format
 msgid "Die Einladung wurde an %(email)s gesendet."
 msgstr "The invitation has been sent to %(email)s."
 
-#: forms.py:116 models.py:10 models.py:17 models.py:36
-#: templates/pdb_grapher/base.html:37 templates/pdb_grapher/base.html:77
+#: forms.py:169 models.py:43 models.py:50 models.py:79
+#: templates/pdb_grapher/base.html:52 templates/pdb_grapher/base.html:92
 msgid "Sprache"
 msgstr "Language"
 
-#: forms.py:137
+#: forms.py:170 models.py:82
+msgid "Zeitzone"
+msgstr "Time zone"
+
+#: forms.py:204
 msgid "Für mich persönlich"
 msgstr "For me personally"
 
-#: forms.py:169 models.py:102 models.py:132
+#: forms.py:262 models.py:186 models.py:245
 msgid "PDB-Datei"
 msgstr "PDB file"
 
-#: forms.py:170
+#: forms.py:263
 msgid "Unterstützt .pdb Dateien"
 msgstr "Supports .pdb files"
 
-#: forms.py:173
+#: forms.py:266
 msgid "PDB-ID"
 msgstr "PDB ID"
 
-#: forms.py:231 templates/pdb_grapher/index.html:54
-#: templates/pdb_grapher/_note_visibility_fields.html:3
-#: templates/pdb_grapher/_note_visibility_fields.html:5
+#: forms.py:328 templates/pdb_grapher/index.html:66
+#: templates/pdb_grapher/_note_visibility_fields.html:10
+#: templates/pdb_grapher/_note_visibility_fields.html:12
 msgid "Sichtbar für"
 msgstr "Visible to"
 
-#: forms.py:38
+#: forms.py:60
 #, python-format
 msgid ""
 "Zu viele fehlgeschlagene Anmeldeversuche. Bitte versuche es in %(minutes)d "
@@ -100,7 +104,7 @@ msgid ""
 msgstr ""
 "Too many failed sign-in attempts. Please try again in %(minutes)d minutes."
 
-#: forms.py:159
+#: forms.py:226
 msgid ""
 "Die Datei muss für dich persönlich oder für mindestens eine Arbeitsgruppe "
 "verfügbar sein. Um sie zu entfernen, lösche sie."
@@ -108,246 +112,259 @@ msgstr ""
 "The file must be available to you personally or to at least one working "
 "group. To remove it, delete it."
 
-#: forms.py:188
+#: forms.py:249
+msgid ""
+"Die Datei muss für den Uploader persönlich oder für mindestens eine "
+"Arbeitsgruppe verfügbar sein. Um sie zu entfernen, lösche sie."
+msgstr ""
+"The file must be available to the uploader personally or to at least one "
+"working group. To remove it, delete it."
+
+#: forms.py:281
 msgid "Nur .pdb Dateien sind erlaubt."
 msgstr "Only .pdb files are allowed."
 
-#: forms.py:190
+#: forms.py:283
 msgid "Datei darf maximal 20 MB groß sein."
 msgstr "The file must not be larger than 20 MB."
 
-#: forms.py:208
+#: forms.py:301
 msgid ""
 "Bitte entweder eine Datei auswählen oder eine PDB-ID eingeben, nicht beides."
 msgstr "Please either choose a file or enter a PDB ID, not both."
 
-#: forms.py:210
+#: forms.py:189
+#, python-format
+msgid "Wie der Server (%(zone)s)"
+msgstr "Same as the server (%(zone)s)"
+
+#: forms.py:303
 msgid "Bitte eine Datei auswählen oder eine PDB-ID eingeben."
 msgstr "Please choose a file or enter a PDB ID."
 
-#: forms.py:232 templates/pdb_grapher/graph.html:590
+#: forms.py:329 templates/pdb_grapher/graph.html:610
 msgid "Nur für mich"
 msgstr "Only me"
 
-#: forms.py:232
+#: forms.py:329
 msgid "Für Arbeitsgruppen"
-msgstr "Working groups"
+msgstr "For working groups"
 
-#: forms.py:264
+#: forms.py:361
 msgid "Wähle mindestens eine Arbeitsgruppe aus, die die Anmerkung lesen darf."
 msgstr "Select at least one working group that may read the note."
 
-#: forms.py:175
+#: forms.py:268
 msgid "z. B. 1LYZ"
 msgstr "e.g. 1LYZ"
 
-#: forms.py:246
+#: forms.py:343
 msgid "Anmerkung schreiben …"
 msgstr "Write a note …"
 
-#: models.py:12
+#: models.py:45
 msgid "Anzeigename"
 msgstr "Display name"
 
-#: models.py:18
+#: models.py:51
 msgid "Sprachen"
 msgstr "Languages"
 
-#: models.py:37 templates/pdb_grapher/base.html:51
-#: templates/pdb_grapher/graph.html:87
+#: models.py:80 templates/pdb_grapher/base.html:66
+#: templates/pdb_grapher/graph.html:106
 msgid "Darstellung"
 msgstr "Display"
 
-#: models.py:40 models.py:41 templates/pdb_grapher/account.html:59
+#: models.py:85 models.py:86 templates/pdb_grapher/account.html:69
 msgid "Einstellungen"
 msgstr "Settings"
 
-#: models.py:55 templates/pdb_grapher/account.html:16
+#: models.py:117 templates/pdb_grapher/account.html:26
 msgid "Name"
 msgstr "Name"
 
-#: models.py:56
+#: models.py:118
 msgid "Beschreibung"
 msgstr "Description"
 
-#: models.py:83 templates/pdb_grapher/graph.html:28
-#: templates/pdb_grapher/index.html:53
+#: models.py:167 templates/pdb_grapher/graph.html:47
+#: templates/pdb_grapher/index.html:65
 msgid "Datei"
 msgstr "File"
 
-#: models.py:84
+#: models.py:168
 msgid "Dateiname"
 msgstr "File name"
 
-#: models.py:89
+#: models.py:173
 msgid "Hochgeladen am"
 msgstr "Uploaded on"
 
-#: models.py:92
+#: models.py:176
 msgid "Persönlich"
 msgstr "Personal"
 
-#: models.py:103 templates/pdb_grapher/index.html:4
+#: models.py:187 templates/pdb_grapher/index.html:16
 msgid "PDB-Dateien"
 msgstr "PDB files"
 
-#: models.py:138
+#: models.py:251
 msgid "Text"
 msgstr "Text"
 
-#: models.py:142
+#: models.py:255
 msgid "Erstellt am"
 msgstr "Created on"
 
-#: models.py:143
+#: models.py:256
 msgid "Bearbeitet am"
 msgstr "Edited on"
 
-#: models.py:148
+#: models.py:261
 msgid "Anmerkung"
 msgstr "Note"
 
-#: models.py:149 templates/pdb_grapher/graph.html:24
-#: templates/pdb_grapher/graph.html:587
+#: models.py:262 templates/pdb_grapher/graph.html:43
+#: templates/pdb_grapher/graph.html:607
 msgid "Anmerkungen"
 msgstr "Notes"
 
-#: models.py:13
+#: models.py:46
 msgid "Name in der Sprachauswahl, in der Sprache selbst, z. B. „English“."
 msgstr ""
 "Name shown in the language selector, written in the language itself, e.g. "
 "“Deutsch”."
 
-#: models.py:30 templates/pdb_grapher/base.html:56
+#: models.py:73 templates/pdb_grapher/base.html:71
 msgid "Hell"
 msgstr "Light"
 
-#: models.py:30 templates/pdb_grapher/base.html:59
+#: models.py:73 templates/pdb_grapher/base.html:74
 msgid "Dunkel"
 msgstr "Dark"
 
-#: models.py:33
+#: models.py:76
 msgid "User"
 msgstr "User"
 
-#: models.py:58
+#: models.py:120
 msgid "Gruppenleiter"
 msgstr "Group leader"
 
-#: models.py:86
+#: models.py:170
 msgid "Hochgeladen von"
 msgstr "Uploaded by"
 
-#: models.py:93
+#: models.py:177
 msgid "Die Datei ist für den Uploader persönlich verfügbar."
 msgstr "The file is available to the uploader personally."
 
-#: models.py:135
+#: models.py:248
 msgid "Verfasser"
 msgstr "Author"
 
-#: models.py:140
+#: models.py:253
 msgid "Lesbar für"
 msgstr "Readable by"
 
-#: rcsb.py:22
+#: rcsb.py:44
 msgid "Ungültige PDB-ID. Eine PDB-ID besteht aus vier Zeichen, z. B. 1LYZ."
 msgstr "Invalid PDB ID. A PDB ID consists of four characters, e.g. 1LYZ."
 
-#: rcsb.py:40
+#: rcsb.py:76
 msgid "RCSB ist nicht erreichbar. Bitte später erneut versuchen."
 msgstr "RCSB cannot be reached. Please try again later."
 
-#: rcsb.py:42
+#: rcsb.py:78
 #, python-format
 msgid "Die Datei für %(id)s ist größer als 20 MB."
 msgstr "The file for %(id)s is larger than 20 MB."
 
-#: rcsb.py:37
+#: rcsb.py:73
 #, python-format
 msgid "RCSB hat den Abruf von %(id)s abgelehnt (HTTP %(code)s)."
 msgstr "RCSB refused the download of %(id)s (HTTP %(code)s)."
 
-#: rcsb.py:36
+#: rcsb.py:72
 #, python-format
 msgid "Für %(id)s gibt es bei RCSB keine Datei im PDB-Format."
 msgstr "RCSB has no file in PDB format for %(id)s."
 
-#: views.py:36
+#: views.py:64
 msgid "Röntgenkristallographie"
 msgstr "X-ray crystallography"
 
-#: views.py:37
+#: views.py:65
 msgid "Neutronenbeugung"
 msgstr "Neutron diffraction"
 
-#: views.py:38
+#: views.py:66
 msgid "Elektronenkristallographie"
 msgstr "Electron crystallography"
 
-#: views.py:39
+#: views.py:67
 msgid "Elektronenmikroskopie"
 msgstr "Electron microscopy"
 
-#: views.py:40
+#: views.py:68
 msgid "NMR (Lösung)"
 msgstr "Solution NMR"
 
-#: views.py:41
+#: views.py:69
 msgid "Festkörper-NMR"
 msgstr "Solid-state NMR"
 
-#: views.py:177
+#: views.py:249
 msgid "Dein Passwort wurde gespeichert."
 msgstr "Your password has been saved."
 
-#: views.py:199
+#: views.py:276
 msgid "Das Passwort wurde geändert."
 msgstr "Your password has been changed."
 
-#: views.py:205
+#: views.py:282
 msgid "Die Einstellungen wurden gespeichert."
 msgstr "Your settings have been saved."
 
-#: views.py:344
+#: views.py:450
 msgid "Nur der Verfasser darf die Anmerkung bearbeiten."
 msgstr "Only the author may edit the note."
 
-#: views.py:362
+#: views.py:472
 msgid "Nur der Verfasser darf die Anmerkung löschen."
 msgstr "Only the author may delete the note."
 
-#: views.py:376
+#: views.py:491
 msgid "Nur der Gruppenleiter darf Anmerkungen aus der Gruppe entfernen."
 msgstr "Only the group leader may remove notes from the group."
 
-#: views.py:389
+#: views.py:508
 msgid "Nur der Uploader darf die Verfügbarkeit bearbeiten."
 msgstr "Only the uploader may edit the availability."
 
-#: views.py:404
+#: views.py:526
 msgid "Nur der Uploader darf die Datei löschen."
 msgstr "Only the uploader may delete the file."
 
-#: views.py:406
+#: views.py:528
 #, python-format
 msgid "„%(name)s“ wurde gelöscht."
 msgstr "“%(name)s” has been deleted."
 
-#: views.py:417
+#: views.py:542
 msgid "Nur der Gruppenleiter darf Dateien aus der Gruppe entfernen."
 msgstr "Only the group leader may remove files from the group."
 
-#: views.py:262
+#: views.py:349
 msgid "Ungültige Konformation."
 msgstr "Invalid conformation."
 
-#: views.py:393
+#: views.py:512
 #, python-format
 msgid "Verfügbarkeit von „%(name)s“ gespeichert."
 msgstr "Availability of “%(name)s” saved."
 
-#: views.py:423
+#: views.py:548
 #, python-format
 msgid ""
 "„%(name)s“ wurde aus „%(group)s“ entfernt und gelöscht, da sie nirgends mehr "
@@ -356,117 +373,122 @@ msgstr ""
 "“%(name)s” has been removed from “%(group)s” and deleted, as it was no longer"
 " available anywhere."
 
-#: views.py:426
+#: views.py:551
 #, python-format
 msgid "„%(name)s“ wurde aus „%(group)s“ entfernt."
 msgstr "“%(name)s” has been removed from “%(group)s”."
 
-#: views.py:230
+#: views.py:312
 #, python-format
 msgid "Die Datei „%(name)s“ konnte nicht verarbeitet werden."
 msgstr "The file “%(name)s” could not be processed."
 
-#: views.py:287 views.py:70
+#: views.py:377 views.py:109
 msgid "Die Datei konnte nicht verarbeitet werden."
 msgstr "The file could not be processed."
 
-#: views.py:273
+#: views.py:363 views.py:360
 msgid "Ungültiges Model."
 msgstr "Invalid model."
 
-#: templates/pdb_grapher/account.html:4 templates/pdb_grapher/account.html:8
-#: templates/pdb_grapher/base.html:34
+#: templates/pdb_grapher/account.html:14 templates/pdb_grapher/account.html:18
+#: templates/pdb_grapher/base.html:49
 msgid "Konto"
 msgstr "Account"
 
-#: templates/pdb_grapher/account.html:12 templates/pdb_grapher/base.html:24
-#: templates/pdb_grapher/base.html:24
+#: templates/pdb_grapher/account.html:22 templates/pdb_grapher/base.html:39
+#: templates/pdb_grapher/base.html:39
 msgid "Benutzerkonto"
 msgstr "User account"
 
-#: templates/pdb_grapher/account.html:14 templates/pdb_grapher/login.html:22
-#: templates/pdb_grapher/password_set.html:18
+#: templates/pdb_grapher/account.html:24 templates/pdb_grapher/login.html:30
+#: templates/pdb_grapher/password_set.html:27
 msgid "Benutzername"
 msgstr "Username"
 
-#: templates/pdb_grapher/account.html:18
-#: templates/pdb_grapher/password_reset_form.html:17
+#: templates/pdb_grapher/account.html:28
+#: templates/pdb_grapher/password_reset_form.html:24
 msgid "E-Mail"
 msgstr "Email"
 
-#: templates/pdb_grapher/account.html:34 templates/pdb_grapher/account.html:52
+#: templates/pdb_grapher/account.html:44 templates/pdb_grapher/account.html:62
 msgid "Passwort ändern"
 msgstr "Change password"
 
-#: templates/pdb_grapher/account.html:72 templates/pdb_grapher/edit.html:17
-#: templates/pdb_grapher/_note_list.html:57
+#: templates/pdb_grapher/account.html:82 templates/pdb_grapher/edit.html:25
+#: templates/pdb_grapher/_note_list.html:66
 msgid "Speichern"
 msgstr "Save"
 
-#: templates/pdb_grapher/base.html:65
+#: templates/pdb_grapher/base.html:80
 msgid "Abmelden"
-msgstr "Log out"
+msgstr "Sign out"
 
-#: templates/pdb_grapher/base.html:70 templates/pdb_grapher/base.html:70
+#: templates/pdb_grapher/base.html:85 templates/pdb_grapher/base.html:85
 msgid "Dark Mode umschalten"
 msgstr "Toggle dark mode"
 
-#: templates/pdb_grapher/base.html:93 templates/pdb_grapher/index.html:106
+#: templates/pdb_grapher/base.html:108 templates/pdb_grapher/base.html:113
+#: templates/pdb_grapher/index.html:120
 msgid "Schließen"
 msgstr "Close"
 
-#: templates/pdb_grapher/edit.html:4
+#: templates/pdb_grapher/base.html:114
+msgid "Die Darstellung konnte nicht gespeichert werden."
+msgstr "The theme could not be saved."
+
+#: templates/pdb_grapher/edit.html:12
 #, python-format
 msgid "%(name)s bearbeiten"
 msgstr "Edit %(name)s"
 
-#: templates/pdb_grapher/edit.html:10
+#: templates/pdb_grapher/edit.html:18
 msgid "Verfügbarkeit bearbeiten"
 msgstr "Edit availability"
 
-#: templates/pdb_grapher/edit.html:16 templates/pdb_grapher/index.html:137
-#: templates/pdb_grapher/_note_list.html:56
+#: templates/pdb_grapher/edit.html:24 templates/pdb_grapher/index.html:151
+#: templates/pdb_grapher/_note_list.html:65
 msgid "Abbrechen"
 msgstr "Cancel"
 
-#: templates/pdb_grapher/graph.html:12
+#: templates/pdb_grapher/graph.html:31
 msgid "Graph"
 msgstr "Graph"
 
-#: templates/pdb_grapher/graph.html:15
+#: templates/pdb_grapher/graph.html:34
 msgid "Ramachandran"
 msgstr "Ramachandran"
 
-#: templates/pdb_grapher/graph.html:18
+#: templates/pdb_grapher/graph.html:37
 msgid "Daten"
 msgstr "Data"
 
-#: templates/pdb_grapher/graph.html:21
+#: templates/pdb_grapher/graph.html:40
 msgid "Statistiken"
 msgstr "Statistics"
 
-#: templates/pdb_grapher/graph.html:30 templates/pdb_grapher/graph.html:30
+#: templates/pdb_grapher/graph.html:49 templates/pdb_grapher/graph.html:49
 msgid "PDB-Datei herunterladen"
 msgstr "Download PDB file"
 
-#: templates/pdb_grapher/graph.html:39 templates/pdb_grapher/graph.html:49
+#: templates/pdb_grapher/graph.html:58 templates/pdb_grapher/graph.html:68
 msgid "Model"
 msgstr "Model"
 
-#: templates/pdb_grapher/graph.html:41 templates/pdb_grapher/graph.html:50
+#: templates/pdb_grapher/graph.html:60 templates/pdb_grapher/graph.html:69
 #, python-format
 msgid "Model %(m)s"
 msgstr "Model %(m)s"
 
-#: templates/pdb_grapher/graph.html:43
+#: templates/pdb_grapher/graph.html:62
 msgid "Durchschnitt"
 msgstr "Average"
 
-#: templates/pdb_grapher/graph.html:48
+#: templates/pdb_grapher/graph.html:67
 msgid "Die Datei enthält nur ein Model."
 msgstr "The file contains only one model."
 
-#: templates/pdb_grapher/graph.html:55
+#: templates/pdb_grapher/graph.html:74
 msgid ""
 "Alternative Konformationen (altLoc). Automatisch und bei Residuen ohne die "
 "gewählte Konformation wird je Residuum die mit der höchsten Belegung "
@@ -476,486 +498,486 @@ msgstr ""
 " the selected conformation, the conformation with the highest occupancy is "
 "used for each residue."
 
-#: templates/pdb_grapher/graph.html:56 templates/pdb_grapher/graph.html:66
+#: templates/pdb_grapher/graph.html:75 templates/pdb_grapher/graph.html:85
 msgid "Konformation"
 msgstr "Conformation"
 
-#: templates/pdb_grapher/graph.html:57
+#: templates/pdb_grapher/graph.html:76
 msgid "Konformation: automatisch"
 msgstr "Conformation: automatic"
 
-#: templates/pdb_grapher/graph.html:59
+#: templates/pdb_grapher/graph.html:78
 #, python-format
 msgid "Konformation %(altloc)s"
 msgstr "Conformation %(altloc)s"
 
-#: templates/pdb_grapher/graph.html:65
+#: templates/pdb_grapher/graph.html:84
 msgid "Die Datei enthält keine alternativen Konformationen."
 msgstr "The file contains no alternate conformations."
 
-#: templates/pdb_grapher/graph.html:67
+#: templates/pdb_grapher/graph.html:86
 msgid "Eine Konformation"
 msgstr "Single conformation"
 
-#: templates/pdb_grapher/graph.html:88
+#: templates/pdb_grapher/graph.html:107
 msgid "Bindungsfarbe"
 msgstr "Bond colour"
 
-#: templates/pdb_grapher/graph.html:89
+#: templates/pdb_grapher/graph.html:108
 msgid "Bindungsfarbe: Rot → Grün nach Bindungslänge"
 msgstr "Bond colour: red → green by bond length"
 
-#: templates/pdb_grapher/graph.html:96
+#: templates/pdb_grapher/graph.html:115
 msgid "Längenbasiert"
 msgstr "By length"
 
-#: templates/pdb_grapher/graph.html:98
+#: templates/pdb_grapher/graph.html:117
 msgid "Bindungsfarbe: alle Bindungen einheitlich"
 msgstr "Bond colour: the same for all bonds"
 
-#: templates/pdb_grapher/graph.html:104
+#: templates/pdb_grapher/graph.html:123
 msgid "Einheitlich"
 msgstr "Uniform"
 
-#: templates/pdb_grapher/graph.html:106
+#: templates/pdb_grapher/graph.html:125
 msgid "Bindungsfarbe: Abweichung vom Referenzwert in Standardabweichungen"
 msgstr "Bond colour: deviation from the reference value in standard deviations"
 
-#: templates/pdb_grapher/graph.html:112
+#: templates/pdb_grapher/graph.html:131
 msgid "Referenz"
 msgstr "Reference"
 
-#: templates/pdb_grapher/graph.html:114
+#: templates/pdb_grapher/graph.html:133
 msgid "Atom- und Bindungsfarbe: B-Faktor"
 msgstr "Atom and bond colour: B-factor"
 
-#: templates/pdb_grapher/graph.html:120
+#: templates/pdb_grapher/graph.html:139
 msgid "B-Faktor"
 msgstr "B-factor"
 
-#: templates/pdb_grapher/graph.html:125
+#: templates/pdb_grapher/graph.html:144
 msgid "Layout"
 msgstr "Layout"
 
-#: templates/pdb_grapher/graph.html:126
+#: templates/pdb_grapher/graph.html:145
 msgid "Layout: festes Raster, unabhängig von Bindungslängen"
 msgstr "Layout: fixed grid, independent of bond lengths"
 
-#: templates/pdb_grapher/graph.html:139
+#: templates/pdb_grapher/graph.html:158
 msgid "Schematisch"
 msgstr "Schematic"
 
-#: templates/pdb_grapher/graph.html:141
+#: templates/pdb_grapher/graph.html:160
 msgid "Layout: Kantenlängen proportional zu Bindungsabständen in Å"
 msgstr "Layout: edge lengths proportional to bond distances in Å"
 
-#: templates/pdb_grapher/graph.html:154
+#: templates/pdb_grapher/graph.html:173
 msgid "Proportional"
 msgstr "Proportional"
 
-#: templates/pdb_grapher/graph.html:159
+#: templates/pdb_grapher/graph.html:178
 msgid "Zoom zurücksetzen (Strg + Mausrad zoomt, Ziehen verschiebt die Ansicht)"
 msgstr "Reset zoom (Ctrl + mouse wheel zooms, dragging moves the view)"
 
-#: templates/pdb_grapher/graph.html:159
+#: templates/pdb_grapher/graph.html:178
 msgid "Zoom zurücksetzen"
 msgstr "Reset zoom"
 
-#: templates/pdb_grapher/graph.html:171 templates/pdb_grapher/graph.html:543
+#: templates/pdb_grapher/graph.html:190 templates/pdb_grapher/graph.html:563
 msgid "Legende"
 msgstr "Legend"
 
-#: templates/pdb_grapher/graph.html:173
+#: templates/pdb_grapher/graph.html:192
 msgid "— Backbone"
 msgstr "— Backbone"
 
-#: templates/pdb_grapher/graph.html:174
+#: templates/pdb_grapher/graph.html:193
 msgid "- - Seitenkette"
 msgstr "- - Side chain"
 
-#: templates/pdb_grapher/graph.html:175
+#: templates/pdb_grapher/graph.html:194
 msgid "··· Disulfidbrücke"
 msgstr "··· Disulfide bridge"
 
-#: templates/pdb_grapher/graph.html:176
+#: templates/pdb_grapher/graph.html:195
 msgid "-·- Ligand"
 msgstr "-·- Ligand"
 
-#: templates/pdb_grapher/graph.html:180
+#: templates/pdb_grapher/graph.html:199
 msgid "Abweichung |Z|"
 msgstr "Deviation |Z|"
 
-#: templates/pdb_grapher/graph.html:183
+#: templates/pdb_grapher/graph.html:202
 msgid "> 4 (Ausreißer)"
 msgstr "> 4 (outlier)"
 
-#: templates/pdb_grapher/graph.html:184
+#: templates/pdb_grapher/graph.html:203
 msgid "ohne Referenz"
 msgstr "no reference"
 
-#: templates/pdb_grapher/graph.html:187
+#: templates/pdb_grapher/graph.html:206
 msgid "B-Faktor (Å²)"
 msgstr "B-factor (Å²)"
 
-#: templates/pdb_grapher/graph.html:192
+#: templates/pdb_grapher/graph.html:211
 msgid "keine B-Faktoren"
 msgstr "no B-factors"
 
-#: templates/pdb_grapher/graph.html:193
+#: templates/pdb_grapher/graph.html:212
 msgid "ohne B-Faktor"
 msgstr "without B-factor"
 
-#: templates/pdb_grapher/graph.html:211
+#: templates/pdb_grapher/graph.html:230
 msgid "Allgemein"
 msgstr "General"
 
-#: templates/pdb_grapher/graph.html:214 templates/pdb_grapher/graph.html:291
+#: templates/pdb_grapher/graph.html:233 templates/pdb_grapher/graph.html:310
 msgid "Elemente"
 msgstr "Elements"
 
-#: templates/pdb_grapher/graph.html:218
+#: templates/pdb_grapher/graph.html:237
 msgid "Element"
 msgstr "Element"
 
-#: templates/pdb_grapher/graph.html:219 templates/pdb_grapher/graph.html:271
-#: templates/pdb_grapher/graph.html:305 templates/pdb_grapher/graph.html:339
-#: templates/pdb_grapher/graph.html:380
+#: templates/pdb_grapher/graph.html:238 templates/pdb_grapher/graph.html:290
+#: templates/pdb_grapher/graph.html:324 templates/pdb_grapher/graph.html:358
+#: templates/pdb_grapher/graph.html:399
 msgid "Anzahl"
 msgstr "Count"
 
-#: templates/pdb_grapher/graph.html:220 templates/pdb_grapher/graph.html:272
-#: templates/pdb_grapher/graph.html:306 templates/pdb_grapher/graph.html:340
-#: templates/pdb_grapher/graph.html:381
+#: templates/pdb_grapher/graph.html:239 templates/pdb_grapher/graph.html:291
+#: templates/pdb_grapher/graph.html:325 templates/pdb_grapher/graph.html:359
+#: templates/pdb_grapher/graph.html:400
 msgid "Anteil"
 msgstr "Share"
 
-#: templates/pdb_grapher/graph.html:221 templates/pdb_grapher/graph.html:273
-#: templates/pdb_grapher/graph.html:307 templates/pdb_grapher/graph.html:341
-#: templates/pdb_grapher/graph.html:382
+#: templates/pdb_grapher/graph.html:240 templates/pdb_grapher/graph.html:292
+#: templates/pdb_grapher/graph.html:326 templates/pdb_grapher/graph.html:360
+#: templates/pdb_grapher/graph.html:401
 msgid "Verteilung"
 msgstr "Distribution"
 
-#: templates/pdb_grapher/graph.html:227 templates/pdb_grapher/graph.html:313
+#: templates/pdb_grapher/graph.html:246 templates/pdb_grapher/graph.html:332
 msgid "Atome gesamt"
 msgstr "Total atoms"
 
-#: templates/pdb_grapher/graph.html:236
+#: templates/pdb_grapher/graph.html:255
 msgid "Models"
 msgstr "Models"
 
-#: templates/pdb_grapher/graph.html:241
+#: templates/pdb_grapher/graph.html:260
 msgid "Methode"
 msgstr "Method"
 
-#: templates/pdb_grapher/graph.html:247
+#: templates/pdb_grapher/graph.html:266
 msgid "Auflösung"
 msgstr "Resolution"
 
-#: templates/pdb_grapher/graph.html:266 templates/pdb_grapher/graph.html:325
+#: templates/pdb_grapher/graph.html:285 templates/pdb_grapher/graph.html:344
 msgid "Aminosäuren"
 msgstr "Amino acids"
 
-#: templates/pdb_grapher/graph.html:270
+#: templates/pdb_grapher/graph.html:289
 msgid "Aminosäure"
 msgstr "Amino acid"
 
-#: templates/pdb_grapher/graph.html:279 templates/pdb_grapher/graph.html:347
+#: templates/pdb_grapher/graph.html:298 templates/pdb_grapher/graph.html:366
 msgid "Aminosäuren gesamt"
 msgstr "Total amino acids"
 
-#: templates/pdb_grapher/graph.html:294
+#: templates/pdb_grapher/graph.html:313
 msgid "Elemente je Kette"
 msgstr "Elements per chain"
 
-#: templates/pdb_grapher/graph.html:300
+#: templates/pdb_grapher/graph.html:319
 msgid "Atome je Kette"
 msgstr "Atoms per chain"
 
-#: templates/pdb_grapher/graph.html:304 templates/pdb_grapher/graph.html:338
+#: templates/pdb_grapher/graph.html:323 templates/pdb_grapher/graph.html:357
 msgid "Kette"
 msgstr "Chain"
 
-#: templates/pdb_grapher/graph.html:328
+#: templates/pdb_grapher/graph.html:347
 msgid "Zusammensetzung je Kette"
 msgstr "Composition per chain"
 
-#: templates/pdb_grapher/graph.html:334
+#: templates/pdb_grapher/graph.html:353
 msgid "Aminosäuren je Kette"
 msgstr "Amino acids per chain"
 
-#: templates/pdb_grapher/graph.html:359 templates/pdb_grapher/graph.html:491
+#: templates/pdb_grapher/graph.html:378 templates/pdb_grapher/graph.html:511
 msgid "Bindungen"
 msgstr "Bonds"
 
-#: templates/pdb_grapher/graph.html:360 templates/pdb_grapher/graph.html:435
+#: templates/pdb_grapher/graph.html:379 templates/pdb_grapher/graph.html:454
 msgid "Abweichung von Referenzwerten"
 msgstr "Deviation from reference values"
 
-#: templates/pdb_grapher/graph.html:366 templates/pdb_grapher/graph.html:441
+#: templates/pdb_grapher/graph.html:385 templates/pdb_grapher/graph.html:460
 #, python-format
 msgid "Referenzwerte: %(backbone)s (Backbone), %(sidechain)s (Seitenketten)"
 msgstr "Reference values: %(backbone)s (backbone), %(sidechain)s (side chains)"
 
-#: templates/pdb_grapher/graph.html:369 templates/pdb_grapher/graph.html:425
-#: templates/pdb_grapher/graph.html:444
+#: templates/pdb_grapher/graph.html:388 templates/pdb_grapher/graph.html:444
+#: templates/pdb_grapher/graph.html:463
 msgid "Ausreißer"
 msgstr "Outliers"
 
-#: templates/pdb_grapher/graph.html:374
+#: templates/pdb_grapher/graph.html:393
 msgid "Peptidbindungen"
 msgstr "Peptide bonds"
 
-#: templates/pdb_grapher/graph.html:379
+#: templates/pdb_grapher/graph.html:398
 msgid "Peptidbindung"
 msgstr "Peptide bond"
 
-#: templates/pdb_grapher/graph.html:388
+#: templates/pdb_grapher/graph.html:407
 msgid "Aufeinanderfolgende Aminosäuren derselben Kette in der Datei"
 msgstr "Consecutive amino acids of the same chain in the file"
 
-#: templates/pdb_grapher/graph.html:388
+#: templates/pdb_grapher/graph.html:407
 msgid "Theoretisch möglich"
 msgstr "Theoretically possible"
 
-#: templates/pdb_grapher/graph.html:397
+#: templates/pdb_grapher/graph.html:416
 msgid "Disulfidbrücken"
 msgstr "Disulfide bridges"
 
-#: templates/pdb_grapher/graph.html:402
+#: templates/pdb_grapher/graph.html:421
 msgid "Kürzeste und längste Bindung"
 msgstr "Shortest and longest bond"
 
-#: templates/pdb_grapher/graph.html:406
+#: templates/pdb_grapher/graph.html:425
 msgid "Verteilung der Bindungslängen"
 msgstr "Distribution of bond lengths"
 
-#: templates/pdb_grapher/graph.html:408
+#: templates/pdb_grapher/graph.html:427
 msgid "Bindungen nach beteiligten Atomen"
 msgstr "Bonds by atoms involved"
 
-#: templates/pdb_grapher/graph.html:415
+#: templates/pdb_grapher/graph.html:434
 msgid "Winkel"
 msgstr "Angles"
 
-#: templates/pdb_grapher/graph.html:416
+#: templates/pdb_grapher/graph.html:435
 msgid "Ramachandran-Bewertung"
 msgstr "Ramachandran evaluation"
 
-#: templates/pdb_grapher/graph.html:422
+#: templates/pdb_grapher/graph.html:441
 #, python-format
 msgid "Ramachandran-Bereiche: %(source)s"
 msgstr "Ramachandran regions: %(source)s"
 
-#: templates/pdb_grapher/graph.html:430
+#: templates/pdb_grapher/graph.html:449
 msgid "cis- und trans-Peptidbindungen"
 msgstr "cis and trans peptide bonds"
 
-#: templates/pdb_grapher/graph.html:449 templates/pdb_grapher/graph.html:498
+#: templates/pdb_grapher/graph.html:468 templates/pdb_grapher/graph.html:518
 msgid "Bindungswinkel"
 msgstr "Bond angles"
 
-#: templates/pdb_grapher/graph.html:459 templates/pdb_grapher/graph.html:545
+#: templates/pdb_grapher/graph.html:479 templates/pdb_grapher/graph.html:565
 msgid "Download"
 msgstr "Download"
 
-#: templates/pdb_grapher/graph.html:460
+#: templates/pdb_grapher/graph.html:480
 msgid "Statistiken als PDF herunterladen"
 msgstr "Download statistics as PDF"
 
-#: templates/pdb_grapher/graph.html:469
+#: templates/pdb_grapher/graph.html:489
 msgid "Einzelne Bindungen"
 msgstr "Individual bonds"
 
-#: templates/pdb_grapher/graph.html:471
+#: templates/pdb_grapher/graph.html:491
 msgid "Statistiken als JSON herunterladen"
 msgstr "Download statistics as JSON"
 
-#: templates/pdb_grapher/graph.html:479
+#: templates/pdb_grapher/graph.html:499
 msgid "Atome als CSV herunterladen"
 msgstr "Download atoms as CSV"
 
-#: templates/pdb_grapher/graph.html:484
+#: templates/pdb_grapher/graph.html:504
 msgid "Atome"
 msgstr "Atoms"
 
-#: templates/pdb_grapher/graph.html:486
+#: templates/pdb_grapher/graph.html:506
 msgid "Bindungen als CSV herunterladen"
 msgstr "Download bonds as CSV"
 
-#: templates/pdb_grapher/graph.html:493
+#: templates/pdb_grapher/graph.html:513
 msgid "Bindungswinkel als CSV herunterladen"
 msgstr "Download bond angles as CSV"
 
-#: templates/pdb_grapher/graph.html:500
+#: templates/pdb_grapher/graph.html:520
 msgid "Diederwinkel als CSV herunterladen"
 msgstr "Download dihedral angles as CSV"
 
-#: templates/pdb_grapher/graph.html:505
+#: templates/pdb_grapher/graph.html:525
 msgid "Diederwinkel"
 msgstr "Dihedral angles"
 
-#: templates/pdb_grapher/graph.html:507
+#: templates/pdb_grapher/graph.html:527
 msgid "Histogramm"
 msgstr "Histogram"
 
-#: templates/pdb_grapher/graph.html:508 templates/pdb_grapher/graph.html:515
-#: templates/pdb_grapher/graph.html:522
+#: templates/pdb_grapher/graph.html:528 templates/pdb_grapher/graph.html:535
+#: templates/pdb_grapher/graph.html:542
 #, python-format
 msgid "Histogramm als %(format)s herunterladen"
 msgstr "Download histogram as %(format)s"
 
-#: templates/pdb_grapher/graph.html:539
+#: templates/pdb_grapher/graph.html:559
 msgid "Kategorie"
 msgstr "Category"
 
-#: templates/pdb_grapher/graph.html:541
+#: templates/pdb_grapher/graph.html:561
 msgid "Alle"
 msgstr "All"
 
-#: templates/pdb_grapher/graph.html:546 templates/pdb_grapher/graph.html:553
-#: templates/pdb_grapher/graph.html:560
+#: templates/pdb_grapher/graph.html:566 templates/pdb_grapher/graph.html:573
+#: templates/pdb_grapher/graph.html:580
 #, python-format
 msgid "Ramachandran-Plot als %(format)s herunterladen"
 msgstr "Download Ramachandran plot as %(format)s"
 
-#: templates/pdb_grapher/graph.html:576
+#: templates/pdb_grapher/graph.html:596
 msgid "Neue Anmerkung"
 msgstr "New note"
 
-#: templates/pdb_grapher/graph.html:580
+#: templates/pdb_grapher/graph.html:600
 msgid "Anmerkung speichern"
 msgstr "Save note"
 
-#: templates/pdb_grapher/graph.html:588
+#: templates/pdb_grapher/graph.html:608
 msgid "Anmerkungen filtern"
 msgstr "Filter notes"
 
-#: templates/pdb_grapher/graph.html:589
+#: templates/pdb_grapher/graph.html:609
 msgid "Alle sichtbaren"
 msgstr "All visible"
 
-#: templates/pdb_grapher/index.html:9
+#: templates/pdb_grapher/index.html:21
 msgid "Dateien"
 msgstr "Files"
 
-#: templates/pdb_grapher/index.html:12
+#: templates/pdb_grapher/index.html:24
 msgid "Neue PDB-Datei hochladen oder von RCSB laden"
 msgstr "Upload a new PDB file or load one from RCSB"
 
-#: templates/pdb_grapher/index.html:12 templates/pdb_grapher/index.html:105
+#: templates/pdb_grapher/index.html:24 templates/pdb_grapher/index.html:119
 msgid "Neue PDB-Datei"
 msgstr "New PDB file"
 
-#: templates/pdb_grapher/index.html:20 templates/pdb_grapher/index.html:20
+#: templates/pdb_grapher/index.html:32 templates/pdb_grapher/index.html:32
 msgid "Verfügbarkeit der ausgewählten Datei bearbeiten"
 msgstr "Edit availability of the selected file"
 
-#: templates/pdb_grapher/index.html:28 templates/pdb_grapher/index.html:28
+#: templates/pdb_grapher/index.html:40 templates/pdb_grapher/index.html:40
 msgid "Ausgewählte Datei löschen"
 msgstr "Delete selected file"
 
-#: templates/pdb_grapher/index.html:37
+#: templates/pdb_grapher/index.html:49
 msgid "Filter"
 msgstr "Filter"
 
-#: templates/pdb_grapher/index.html:38
+#: templates/pdb_grapher/index.html:50
 msgid "Alle verfügbaren"
 msgstr "All available"
 
-#: templates/pdb_grapher/index.html:39
+#: templates/pdb_grapher/index.html:51
 msgid "Meine Uploads"
 msgstr "My uploads"
 
-#: templates/pdb_grapher/index.html:45
+#: templates/pdb_grapher/index.html:57
 msgid "Dateiname suchen …"
 msgstr "Search file name …"
 
-#: templates/pdb_grapher/index.html:45
+#: templates/pdb_grapher/index.html:57
 msgid "Dateiname suchen"
 msgstr "Search file name"
 
-#: templates/pdb_grapher/index.html:55
+#: templates/pdb_grapher/index.html:67
 msgid "Hochgeladen"
 msgstr "Uploaded"
 
-#: templates/pdb_grapher/index.html:56
+#: templates/pdb_grapher/index.html:68
 msgid "Letzte Anmerkung"
 msgstr "Latest note"
 
-#: templates/pdb_grapher/index.html:67 templates/pdb_grapher/_note_list.html:23
+#: templates/pdb_grapher/index.html:80 templates/pdb_grapher/_note_list.html:32
 msgid "persönlich"
 msgstr "personal"
 
-#: templates/pdb_grapher/index.html:74
+#: templates/pdb_grapher/index.html:87
 #, python-format
 msgid "„%(name)s“ aus der Gruppe „%(group)s“ entfernen?"
 msgstr "Remove “%(name)s” from the group “%(group)s”?"
 
-#: templates/pdb_grapher/index.html:76 templates/pdb_grapher/_note_list.html:18
+#: templates/pdb_grapher/index.html:89 templates/pdb_grapher/_note_list.html:27
 msgid "Aus Gruppe entfernen"
 msgstr "Remove from group"
 
-#: templates/pdb_grapher/index.html:76 templates/pdb_grapher/_note_list.html:18
+#: templates/pdb_grapher/index.html:89 templates/pdb_grapher/_note_list.html:27
 #, python-format
 msgid "Aus Gruppe %(group)s entfernen"
 msgstr "Remove from group %(group)s"
 
-#: templates/pdb_grapher/index.html:89
+#: templates/pdb_grapher/index.html:102
 msgid "Keine PDB-Dateien für diese Auswahl."
 msgstr "No PDB files for this selection."
 
-#: templates/pdb_grapher/index.html:89
+#: templates/pdb_grapher/index.html:102
 msgid "Keine PDB-Dateien vorhanden."
 msgstr "No PDB files yet."
 
-#: templates/pdb_grapher/index.html:111
+#: templates/pdb_grapher/index.html:125
 msgid "Datei hierher ziehen oder"
 msgstr "Drag a file here or"
 
-#: templates/pdb_grapher/index.html:113
+#: templates/pdb_grapher/index.html:127
 msgid "Datei auswählen"
 msgstr "Choose file"
 
-#: templates/pdb_grapher/index.html:122
+#: templates/pdb_grapher/index.html:136
 msgid "oder"
 msgstr "or"
 
-#: templates/pdb_grapher/index.html:125
+#: templates/pdb_grapher/index.html:139
 msgid "PDB-ID von RCSB laden"
 msgstr "Load PDB ID from RCSB"
 
-#: templates/pdb_grapher/index.html:140
+#: templates/pdb_grapher/index.html:154
 msgid "Protein analysieren"
 msgstr "Analyse protein"
 
-#: templates/pdb_grapher/login.html:4 templates/pdb_grapher/login.html:35
+#: templates/pdb_grapher/login.html:12 templates/pdb_grapher/login.html:43
 msgid "Anmelden"
-msgstr "Log in"
+msgstr "Sign in"
 
-#: templates/pdb_grapher/login.html:10
+#: templates/pdb_grapher/login.html:18
 msgid "Bitte melde dich mit deinem Benutzerkonto an."
-msgstr "Please log in with your user account."
+msgstr "Please sign in with your user account."
 
-#: templates/pdb_grapher/login.html:28
+#: templates/pdb_grapher/login.html:36
 msgid "Passwort"
 msgstr "Password"
 
-#: templates/pdb_grapher/login.html:29
+#: templates/pdb_grapher/login.html:37
 msgid "Passwort vergessen?"
 msgstr "Forgotten your password?"
 
-#: templates/pdb_grapher/login.html:39
+#: templates/pdb_grapher/login.html:47
 msgid "Benutzerkonten werden vom Administrator angelegt."
 msgstr "User accounts are created by the administrator."
 
-#: templates/pdb_grapher/password_reset_done.html:4
-#: templates/pdb_grapher/password_reset_done.html:10
-#: templates/pdb_grapher/password_reset_form.html:4
-#: templates/pdb_grapher/password_reset_form.html:10
+#: templates/pdb_grapher/password_reset_done.html:11
+#: templates/pdb_grapher/password_reset_done.html:17
+#: templates/pdb_grapher/password_reset_form.html:11
+#: templates/pdb_grapher/password_reset_form.html:17
 msgid "Passwort vergessen"
 msgstr "Forgotten password"
 
-#: templates/pdb_grapher/password_reset_done.html:14
+#: templates/pdb_grapher/password_reset_done.html:21
 #, python-format
 msgid ""
 "Wenn zu dieser E-Mail-Adresse ein Benutzerkonto gehört, wurde ein Link zum "
@@ -970,76 +992,79 @@ msgstr[1] ""
 "If a user account belongs to this email address, a link to set a new password"
 " has been sent. It is valid for %(hours)s hours."
 
-#: templates/pdb_grapher/password_reset_done.html:17
-#: templates/pdb_grapher/password_reset_form.html:28
-#: templates/pdb_grapher/password_set.html:40
+#: templates/pdb_grapher/password_reset_done.html:24
+#: templates/pdb_grapher/password_reset_form.html:35
+#: templates/pdb_grapher/password_set.html:49
 msgid "Zur Anmeldung"
 msgstr "Back to sign-in"
 
-#: templates/pdb_grapher/password_reset_form.html:24
+#: templates/pdb_grapher/password_reset_form.html:31
 msgid "Link senden"
 msgstr "Send link"
 
-#: templates/pdb_grapher/password_set.html:4
-#: templates/pdb_grapher/password_set.html:10
+#: templates/pdb_grapher/password_set.html:13
+#: templates/pdb_grapher/password_set.html:19
 msgid "Passwort festlegen"
 msgstr "Set password"
 
-#: templates/pdb_grapher/password_set.html:4
-#: templates/pdb_grapher/password_set.html:10
+#: templates/pdb_grapher/password_set.html:13
+#: templates/pdb_grapher/password_set.html:19
 msgid "Neues Passwort"
 msgstr "New password"
 
-#: templates/pdb_grapher/password_set.html:32
+#: templates/pdb_grapher/password_set.html:41
 msgid "Passwort speichern"
 msgstr "Save password"
 
-#: templates/pdb_grapher/password_set.html:35
+#: templates/pdb_grapher/password_set.html:44
 msgid "Dieser Link ist ungültig oder abgelaufen."
 msgstr "This link is invalid or has expired."
 
-#: templates/pdb_grapher/password_set.html:36
+#: templates/pdb_grapher/password_set.html:45
 msgid "Neuen Link anfordern"
 msgstr "Request a new link"
 
-#: templates/pdb_grapher/_availability_fields.html:3
+#: templates/pdb_grapher/_availability_fields.html:9
 msgid "Verfügbar für"
 msgstr "Available to"
 
-#: templates/pdb_grapher/_availability_fields.html:11
-#: templates/pdb_grapher/_note_visibility_fields.html:17
+#: templates/pdb_grapher/_availability_fields.html:17
+#: templates/pdb_grapher/_note_visibility_fields.html:24
 #, python-format
 msgid "Arbeitsgruppe %(group)s"
 msgstr "Working group %(group)s"
 
-#: templates/pdb_grapher/_availability_fields.html:14
-#: templates/pdb_grapher/_note_visibility_fields.html:20
+#: templates/pdb_grapher/_availability_fields.html:20
 msgid "Du bist keiner Arbeitsgruppe zugeordnet."
 msgstr "You are not a member of any working group."
 
-#: templates/pdb_grapher/_note_list.html:8
+#: templates/pdb_grapher/_note_list.html:17
 msgid "bearbeitet"
 msgstr "edited"
 
-#: templates/pdb_grapher/_note_list.html:16
+#: templates/pdb_grapher/_note_list.html:25
 #, python-format
 msgid "Anmerkung aus der Gruppe „%(group)s“ entfernen?"
 msgstr "Remove the note from the group “%(group)s”?"
 
-#: templates/pdb_grapher/_note_list.html:26
-#: templates/pdb_grapher/_note_list.html:26
-#: templates/pdb_grapher/_note_list.html:51
+#: templates/pdb_grapher/_note_list.html:35
+#: templates/pdb_grapher/_note_list.html:35
+#: templates/pdb_grapher/_note_list.html:60
 msgid "Anmerkung bearbeiten"
 msgstr "Edit note"
 
-#: templates/pdb_grapher/_note_list.html:34
+#: templates/pdb_grapher/_note_list.html:43
 msgid "Anmerkung endgültig löschen?"
 msgstr "Permanently delete the note?"
 
-#: templates/pdb_grapher/_note_list.html:36
-#: templates/pdb_grapher/_note_list.html:36
+#: templates/pdb_grapher/_note_list.html:45
+#: templates/pdb_grapher/_note_list.html:45
 msgid "Anmerkung löschen"
 msgstr "Delete note"
+
+#: templates/pdb_grapher/_note_visibility_fields.html:27
+msgid "Die Datei ist für keine deiner Arbeitsgruppen freigegeben."
+msgstr "The file is not shared with any of your working groups."
 
 #: templates/pdb_grapher/email/invitation_email.txt:1
 #: templates/pdb_grapher/email/password_reset_email.txt:1

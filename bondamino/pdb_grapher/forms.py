@@ -10,6 +10,7 @@
 """
 import logging
 import unicodedata
+import zoneinfo
 
 from django import forms
 from django.conf import settings
@@ -156,23 +157,38 @@ class InvitationUserForm(forms.ModelForm):
 
 
 class UserSettingsForm(forms.ModelForm):
-    """Settings form on the account page; offers the languages created in the admin.
+    """Settings form on the account page: language, theme and time zone.
+
+    Offers the languages created in the admin; without any, the language field is left out (the default
+    language applies). The time zone list contains all IANA time zones; the empty choice means the server's
+    ``TIME_ZONE``.
 
     Args:
         current_language: Active language code, preselected if the user has not stored a language yet.
     """
     language = forms.ChoiceField(label=_('Sprache'), widget=forms.Select(attrs={'class': 'form-select'}))
+    time_zone = forms.ChoiceField(label=_('Zeitzone'), required=False,
+                                  widget=forms.Select(attrs={'class': 'form-select'}))
 
     class Meta:
         model = UserSettings
-        fields = ['language', 'theme']
+        fields = ['language', 'theme', 'time_zone']
         widgets = {'theme': forms.Select(attrs={'class': 'form-select'})}
 
     def __init__(self, *args, current_language, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['language'].choices = [(lang.code, lang.name) for lang in Language.objects.all()]
-        if not self.instance.language:
-            self.initial['language'] = current_language
+        languages = [(lang.code, lang.name) for lang in Language.objects.all()]
+        if languages:
+            self.fields['language'].choices = languages
+            if not self.instance.language:
+                self.initial['language'] = current_language
+        else:
+            # A required field without choices could never be submitted
+            del self.fields['language']
+        self.fields['time_zone'].choices = [
+            ('', _('Wie der Server (%(zone)s)') % {'zone': settings.TIME_ZONE}),
+            *((zone, zone.replace('_', ' ')) for zone in sorted(zoneinfo.available_timezones())),
+        ]
 
 
 class AvailabilityForm(forms.ModelForm):
@@ -210,6 +226,29 @@ class AvailabilityForm(forms.ModelForm):
             raise forms.ValidationError(_(
                 'Die Datei muss für dich persönlich oder für mindestens eine Arbeitsgruppe '
                 'verfügbar sein. Um sie zu entfernen, lösche sie.'
+            ))
+        return cleaned
+
+
+class PDBFileAdminForm(forms.ModelForm):
+    """Admin form of a PDB file with the same availability rule as ``AvailabilityForm``.
+
+    Without it the admin could leave a file available to no one; such a file would stay in the database
+    although no user can see it (outside the admin) or delete it.
+    """
+
+    class Meta:
+        model = PDBFile
+        fields = '__all__'
+
+    def clean(self):
+        cleaned = super().clean()
+        # "personal" only keeps a file available as long as it has an uploader (see delete_if_orphaned)
+        personal = cleaned.get('personal') and cleaned.get('uploaded_by')
+        if not personal and not cleaned.get('groups'):
+            raise forms.ValidationError(_(
+                'Die Datei muss für den Uploader persönlich oder für mindestens eine Arbeitsgruppe verfügbar '
+                'sein. Um sie zu entfernen, lösche sie.'
             ))
         return cleaned
 
@@ -275,11 +314,13 @@ class PDBUploadForm(AvailabilityForm):
 class NoteForm(forms.ModelForm):
     """Note with visibility: only for the author or additionally for selected work groups.
 
-    Selectable are the user's groups and the groups the note is already shared with. ``visibility`` is not a
-    model field; with ``PERSONAL`` the selected groups are discarded.
+    Selectable are the user's groups in which the PDB file is shared (members of other groups could never
+    read the note, because they cannot see the file), plus the groups the note is already shared with.
+    ``visibility`` is not a model field; with ``PERSONAL`` the selected groups are discarded.
 
     Args:
         user: The author, whose groups are offered.
+        pdb: The PDBFile the note belongs to.
     """
     PERSONAL, GROUPS = 'personal', 'groups'
 
@@ -303,9 +344,9 @@ class NoteForm(forms.ModelForm):
             }),
         }
 
-    def __init__(self, *args, user, **kwargs):
+    def __init__(self, *args, user, pdb, **kwargs):
         super().__init__(*args, **kwargs)
-        groups = WorkGroup.objects.filter(members=user)
+        groups = WorkGroup.objects.filter(members=user, pdb_files=pdb)
         if self.instance.pk:
             current = self.instance.groups.all()
             groups = groups | current
