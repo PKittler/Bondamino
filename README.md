@@ -14,6 +14,7 @@ through environment variables (standalone: the file `bondamino/.env`).
   - [Portainer](#portainer)
   - [Other platforms](#other-platforms)
 - [Configuration reference](#configuration-reference)
+- [Security](#security)
 - [Updating](#updating)
 - [Backup](#backup)
 - [Development](#development)
@@ -107,7 +108,7 @@ relational, and DuckDB is designed for analytics, not for concurrent writes of a
        listen 443 ssl;
        server_name bondamino.example.org;
        # ssl_certificate ... / ssl_certificate_key ...
-       client_max_body_size 50m;
+       client_max_body_size 25m;       # uploads are limited to 20 MB
 
        location / {
            proxy_pass http://127.0.0.1:8000;
@@ -158,6 +159,8 @@ There is one Compose file per database:
    - the `EMAIL_*` settings of your mail server
 
    Leave `SECRET_KEY` empty: it is generated on the first start and stored in the data volume.
+   Once the administrator exists, remove `ADMIN_PASSWORD` again; it is only needed for the first
+   start and would otherwise stay readable in the container configuration.
    `DATABASE_URL` is set by the Compose file; the entry in `.env` is ignored.
 
 2. Start:
@@ -173,7 +176,8 @@ There is one Compose file per database:
    add `--build`.
 
 3. For HTTPS, put a reverse proxy in front (see the nginx example above, or Traefik/Caddy in
-   Docker) and set `HTTPS=1`.
+   Docker) and set `HTTPS=1`. The proxy should also limit the request size (uploads are limited to
+   20 MB, but without a proxy the file is only rejected after it has been received completely).
 
 Logs: `docker compose logs -f bondamino`. Management commands run inside the container, e.g.
 `docker compose exec bondamino python manage.py createsuperuser`.
@@ -216,7 +220,7 @@ user ID 1000.
 | `SECRET_KEY_FILE` | Docker: `/data/secret_key` | File with the secret key, if `SECRET_KEY` is empty |
 | `DEBUG` | `0` | `1` = development mode with detailed error pages. Never on a public server. |
 | `ALLOWED_HOSTS` | `localhost` with `DEBUG=1`, otherwise none | Domains under which Bondamino is reached, comma-separated |
-| `HTTPS` | `0` | `1` = served via HTTPS through a reverse proxy: secure cookies, `X-Forwarded-Proto` is trusted |
+| `HTTPS` | `0` | `1` = served via HTTPS through a reverse proxy: secure cookies, `X-Forwarded-Proto` is trusted, the client address is taken from the last entry of `X-Forwarded-For` |
 | `CSRF_TRUSTED_ORIGINS` | derived from `ALLOWED_HOSTS` | Only needed if the proxy changes the host name, e.g. `https://bondamino.example.org` |
 | `DATABASE_URL` | `sqlite:///db.sqlite3` | `sqlite:///file` (relative to `manage.py`), `sqlite:////absolute/path`, `postgres://user:password@host:5432/name`, `mariadb://user:password@host:3306/name`. URL-encode special characters in user and password (`@` → `%40`). Options after `?`, e.g. `?sslmode=require`. |
 | `CONN_MAX_AGE` | `60` | Seconds a database connection is reused |
@@ -238,6 +242,19 @@ Password links (invitation, forgotten password) are valid for 24 hours and only 
 emails use the domain under which the page was requested, so `ALLOWED_HOSTS` and the proxy's
 `Host` header must contain the public domain.
 
+## Security
+
+- Sign-in (also `/admin/`): after 5 failed attempts for a user name from one address, or 20 failed
+  attempts from one address in total, sign-in from that address is blocked for 15 minutes.
+- Forgotten password: at most 3 emails per address and 10 requests per client address per hour.
+- The counters are kept in the database (`manage.py createcachetable`). Behind a reverse proxy,
+  set `HTTPS=1` and let the proxy set `X-Forwarded-For` (nginx: see above; Traefik and Caddy do
+  this by default), otherwise all clients share the proxy's address.
+- Uploaded files are only delivered to users who may see them, never directly by the web server.
+- All scripts, styles and fonts are delivered by Bondamino itself; no external services are
+  contacted, except RCSB when a structure is loaded by PDB ID.
+- HSTS and the redirect from HTTP to HTTPS are left to the reverse proxy.
+
 ## Updating
 
 Standalone:
@@ -247,6 +264,7 @@ git pull
 pip install -r requirements-postgresql.txt     # the file of your database
 cd bondamino
 python manage.py migrate
+python manage.py createcachetable
 python manage.py collectstatic --noinput
 sudo systemctl restart bondamino
 ```

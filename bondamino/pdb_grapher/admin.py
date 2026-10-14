@@ -4,7 +4,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.db import transaction
 from django.utils.translation import gettext, gettext_lazy as _, ngettext
 
-from .forms import InvitationUserForm, send_invitation
+from .forms import AdminLoginForm, InvitationUserForm, send_invitation
 
 from .models import Language, Note, PDBFile, UserSettings, WorkGroup
 
@@ -59,6 +59,10 @@ class UserSettingsInline(admin.StackedInline):
     model = UserSettings
     can_delete = False
     extra = 0
+
+
+# Begrenzung der Anmeldeversuche auch im Admin
+admin.site.login_form = AdminLoginForm
 
 
 User = get_user_model()

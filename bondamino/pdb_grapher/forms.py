@@ -1,7 +1,9 @@
+import logging
 import unicodedata
 
 from django import forms
 from django.conf import settings
+from django.contrib.admin.forms import AdminAuthenticationForm
 from django.contrib.auth import forms as auth_forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
@@ -13,23 +15,63 @@ from django.utils.http import urlsafe_base64_encode
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils.translation import gettext_lazy as _
 
-from . import rcsb
+from . import rcsb, throttle
 from .models import Language, Note, PDBFile, UserSettings, WorkGroup
+
+logger = logging.getLogger(__name__)
 
 
 def _same_email(a, b):
     return unicodedata.normalize('NFKC', a).casefold() == unicodedata.normalize('NFKC', b).casefold()
 
 
+class ThrottledLoginMixin:
+    """Nach zu vielen Fehlversuchen wird die Anmeldung für eine Weile abgelehnt, auch mit
+    richtigem Passwort (siehe throttle.py)."""
+
+    def clean(self):
+        username = self.cleaned_data.get('username') or ''
+        if self.request is None or not username:
+            return super().clean()
+        if throttle.login_locked(self.request, username):
+            raise forms.ValidationError(
+                _('Zu viele fehlgeschlagene Anmeldeversuche. Bitte versuche es in %(minutes)d Minuten erneut.'),
+                code='throttled', params={'minutes': throttle.LOGIN_LOCK_SECONDS // 60},
+            )
+        try:
+            cleaned = super().clean()
+        except forms.ValidationError as error:
+            if error.code in ('invalid_login', 'inactive'):
+                throttle.login_failed(self.request, username)
+            raise
+        throttle.login_succeeded(self.request, username)
+        return cleaned
+
+
+class LoginForm(ThrottledLoginMixin, auth_forms.AuthenticationForm):
+    pass
+
+
+class AdminLoginForm(ThrottledLoginMixin, AdminAuthenticationForm):
+    pass
+
+
 class PasswordResetForm(auth_forms.PasswordResetForm):
     """Passwort vergessen. Anders als bei Django auch für User ohne Passwort, also nach einer
-    noch nicht angenommenen oder abgelaufenen Einladung."""
+    noch nicht angenommenen oder abgelaufenen Einladung. Je E-Mail- und IP-Adresse gehen nur
+    wenige E-Mails pro Stunde raus; die Antwort ist dieselbe, damit nichts verraten wird."""
 
     def get_users(self, email):
         user_model = get_user_model()
         email_field = user_model.get_email_field_name()
         users = user_model._default_manager.filter(**{f'{email_field}__iexact': email, 'is_active': True})
         return (u for u in users if _same_email(email, getattr(u, email_field)))
+
+    def save(self, *args, request=None, **kwargs):
+        if request is not None and not throttle.reset_allowed(request, self.cleaned_data['email']):
+            logger.warning('Password reset rate limit reached for %s', throttle.client_ip(request))
+            return
+        super().save(*args, request=request, **kwargs)
 
 
 def send_invitation(request, user):
