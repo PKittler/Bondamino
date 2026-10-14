@@ -1,5 +1,5 @@
 # Bondamino: Pakete für den Betrieb (pip install -r requirements.txt)
-Django~=5.1.4
+Django~=5.2.18
 whitenoise~=6.8
 # WSGI-Server für den Betrieb unter Linux/macOS (unter Windows: waitress, siehe README)
 gunicorn~=26.2; sys_platform != "win32"
