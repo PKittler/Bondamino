@@ -3,7 +3,23 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils.translation import gettext_lazy as _
 
 from . import rcsb
-from .models import Note, PDBFile, WorkGroup
+from .models import Language, Note, PDBFile, UserSettings, WorkGroup
+
+
+class UserSettingsForm(forms.ModelForm):
+    """Einstellungen auf der Account-Seite; zur Wahl stehen die im Admin angelegten Sprachen."""
+    language = forms.ChoiceField(label=_('Sprache'), widget=forms.Select(attrs={'class': 'form-select'}))
+
+    class Meta:
+        model = UserSettings
+        fields = ['language', 'theme']
+        widgets = {'theme': forms.Select(attrs={'class': 'form-select'})}
+
+    def __init__(self, *args, current_language, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['language'].choices = [(lang.code, lang.name) for lang in Language.objects.all()]
+        if not self.instance.language:
+            self.initial['language'] = current_language
 
 
 class AvailabilityForm(forms.ModelForm):

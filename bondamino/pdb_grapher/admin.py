@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import Language, Note, PDBFile, WorkGroup
+from .models import Language, Note, PDBFile, UserSettings, WorkGroup
 
 
 @admin.register(Language)
@@ -52,10 +52,16 @@ class WorkGroupMembershipInline(admin.TabularInline):
     extra = 0
 
 
+class UserSettingsInline(admin.StackedInline):
+    model = UserSettings
+    can_delete = False
+    extra = 0
+
+
 User = get_user_model()
 admin.site.unregister(User)
 
 
 @admin.register(User)
 class BondaminoUserAdmin(UserAdmin):
-    inlines = [*UserAdmin.inlines, WorkGroupMembershipInline]
+    inlines = [*UserAdmin.inlines, WorkGroupMembershipInline, UserSettingsInline]

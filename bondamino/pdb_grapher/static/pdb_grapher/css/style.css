@@ -71,6 +71,27 @@
 /* Sprachauswahl in der Navbar */
 .language-select { width: auto; }
 
+/* Account-Menü in der Navbar: Häkchen vor der gewählten Sprache bzw. Darstellung */
+.account-menu { min-width: 14rem; }
+.account-menu-user { white-space: normal; }
+.menu-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.menu-check { flex: none; visibility: hidden; }
+.menu-option.is-selected .menu-check { visibility: visible; }
+
+/* Account-Seite */
+.account-facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 1.5rem;
+    row-gap: 0.5rem;
+}
+.account-facts dt { font-weight: 400; color: var(--bs-secondary-color); }
+.account-facts dd { margin: 0; display: flex; flex-wrap: wrap; gap: 0.25rem; }
+
 /* Startseite: Toolbar über der Dateiliste; Zeilen sind auswählbar. */
 .file-toolbar {
     padding: 8px 12px;

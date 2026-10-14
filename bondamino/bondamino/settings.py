@@ -44,11 +44,12 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    # Statt django.middleware.locale.LocaleMiddleware: nur die im Admin angelegten Sprachen
-    'pdb_grapher.middleware.LanguageMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Statt django.middleware.locale.LocaleMiddleware: nur die im Admin angelegten Sprachen;
+    # nach der AuthenticationMiddleware wegen der Spracheinstellung des Users
+    'pdb_grapher.middleware.LanguageMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
