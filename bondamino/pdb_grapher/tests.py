@@ -768,6 +768,7 @@ class AnglesTabTests(BaseTestCase):
         for fmt in ('png', 'jpeg', 'svg'):
             self.assertContains(response, f'data-ramachandran-format="{fmt}"')
         self.assertContains(response, 'id="rama-type"')
+        self.assertContains(response, 'id="export-pdf-bonds"')
         self.assertContains(response, 'rama8000_regions.json')
         self.assertContains(response, 'Williams et al. (2018)')
 
