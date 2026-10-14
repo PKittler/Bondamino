@@ -165,7 +165,12 @@ MODIFIED_PARENTS = {
 COVALENT_RADII = {
     'C': 0.76, 'N': 0.71, 'O': 0.66, 'S': 1.05, 'SE': 1.20, 'P': 1.07,
     'F': 0.57, 'CL': 1.02, 'BR': 1.20, 'I': 1.39, 'B': 0.84,
+    # Metalle in Liganden (z. B. Fe im Häm, Mg im Chlorophyll); Cordero et al. (2008)
+    'FE': 1.32, 'ZN': 1.22, 'MG': 1.41, 'CU': 1.32, 'MN': 1.39, 'CO': 1.26, 'NI': 1.24,
+    'CA': 1.76, 'MO': 1.54, 'W': 1.62, 'V': 1.53,
 }
+# Wasser bekommt keine Bindungen (nur ein schweres Atom)
+WATER_NAMES = {'HOH', 'DOD', 'WAT', 'H2O'}
 DEFAULT_COVALENT_RADIUS = 0.80
 # Zwei Atome gelten als gebunden, wenn ihr Abstand höchstens die Summe der Radien plus
 # diese Toleranz beträgt (übliche Werte 0,4–0,45 Å)
@@ -247,12 +252,14 @@ class Residue(dict):
     Residuennamen zu, z. B. {"A": "PRO", "B": "SER"} (leer ohne Alternativen).
     `parent` ist bei modifizierten Aminosäuren die Ausgangs-Aminosäure (z. B. "MET" für
     MSE), `sidechain_bonds` deren Seitenketten-Bindungen als Atomnamen-Paare.
+    `ligand_bonds` sind bei Liganden die Bindungen zwischen ihren Atomen (sonst None).
     """
 
     def __init__(self, *args, conformations=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.conformations = conformations or {}
         self.parent = None
+        self.ligand_bonds = None
         self.sidechain_bonds = []
         # (chain, seq, icode) der Cysteine, mit denen laut SSBOND eine Disulfidbrücke besteht
         self.ssbond_partners = set()
@@ -387,16 +394,20 @@ def parse_pdb(file_path, model_id=None, altloc=None):
 
     topology = _conect_topology(conect, serials)
     for (_, _, _, res_name), residue in residues.items():
-        if res_name in SIDECHAIN_BONDS or not {'N', 'CA', 'C'} <= residue.keys():
-            continue  # Standard-Aminosäure oder keine Aminosäure (Ligand, Wasser, Ion)
-        residue.parent = modres.get(res_name) or MODIFIED_PARENTS.get(res_name)
+        if res_name in SIDECHAIN_BONDS or res_name in WATER_NAMES:
+            continue
         heavy = [name for name, atom in residue.items() if atom['element'].upper() not in ('H', 'D')]
         if res_name in topology:
             bonds = [(a, b) for a, b in topology[res_name] if a in heavy and b in heavy]
         else:
             bonds = _bonds_by_distance(residue, heavy)
-        backbone = {frozenset(pair) for pair in BACKBONE_BONDS}
-        residue.sidechain_bonds = [pair for pair in bonds if frozenset(pair) not in backbone]
+        if {'N', 'CA', 'C'} <= residue.keys():
+            # Modifizierte Aminosäure: Rückgrat wie üblich, der Rest ist ihre Seitenkette
+            residue.parent = modres.get(res_name) or MODIFIED_PARENTS.get(res_name)
+            backbone = {frozenset(pair) for pair in BACKBONE_BONDS}
+            residue.sidechain_bonds = [pair for pair in bonds if frozenset(pair) not in backbone]
+        else:
+            residue.ligand_bonds = bonds  # Ligand (Ionen haben nur ein Atom und damit keine)
     return residues
 
 
@@ -486,7 +497,10 @@ def _iter_bonds(residues):
         res_class = _residue_class(residues, key)
 
         sidechain = SIDECHAIN_BONDS.get(res_name) or getattr(atoms, 'sidechain_bonds', [])
-        for bond_type, bonds in (('backbone', BACKBONE_BONDS), ('sidechain', sidechain)):
+        # Liganden nur mit ihren eigenen Bindungen (Atome wie C und O sind dort kein Rückgrat)
+        ligand = getattr(atoms, 'ligand_bonds', None)
+        groups = [('ligand', ligand)] if ligand is not None else [('backbone', BACKBONE_BONDS), ('sidechain', sidechain)]
+        for bond_type, bonds in groups:
             for a1n, a2n in bonds:
                 if a1n in atoms and a2n in atoms:
                     yield (atom_id(chain_id, res_seq, i_code, a1n), atom_id(chain_id, res_seq, i_code, a2n),

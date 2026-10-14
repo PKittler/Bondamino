@@ -197,6 +197,54 @@ function placeRingBranches(ringDefs, positions, atomById, scAdj, bondPx, pfx, re
     });
 }
 
+// Liganden: 2D-Anordnung aus den 3D-Koordinaten. Projektion auf die beiden Hauptachsen
+// (die längere waagerecht), danach entzerrt eine kurze Kräfte-Simulation überlappende
+// Atome. `linkPx(bond)` ist die Ziellänge einer Bindung in Pixeln. Liefert Positionen
+// relativ zur linken oberen Ecke sowie Breite und Höhe.
+const LIGAND_PAD = 28; // Abstand zum Rand des Bandes (px)
+function layoutLigand(atoms, bonds, linkPx) {
+    const n = atoms.length;
+    const mean = ['x', 'y', 'z'].map(k => d3.mean(atoms, a => a[k]));
+    const centered = atoms.map(a => [a.x - mean[0], a.y - mean[1], a.z - mean[2]]);
+    const cov = [0, 1, 2].map(i => [0, 1, 2].map(j => d3.sum(centered, p => p[i] * p[j])));
+    const mul = v => cov.map(row => row[0] * v[0] + row[1] * v[1] + row[2] * v[2]);
+    const norm = v => { const l = Math.hypot(...v) || 1; return v.map(c => c / l); };
+    // Hauptachsen per Potenzmethode (deterministisch); die zweite senkrecht zur ersten
+    const axis = orthogonalTo => {
+        let v = orthogonalTo ? norm([orthogonalTo[1], -orthogonalTo[0], 0.3]) : [1, 0.6, 0.3];
+        for (let i = 0; i < 50; i++) {
+            v = mul(v);
+            if (orthogonalTo) {
+                const d = v[0] * orthogonalTo[0] + v[1] * orthogonalTo[1] + v[2] * orthogonalTo[2];
+                v = v.map((c, k) => c - d * orthogonalTo[k]);
+            }
+            v = norm(v);
+        }
+        return v;
+    };
+    const e1 = axis(null), e2 = axis(e1);
+    const meanBond = d3.mean(bonds, b => b.length) || 1.5;
+    const nodes = atoms.map((a, i) => {
+        const p = centered[i];
+        const scale = linkPx({ length: meanBond }) / meanBond;
+        return { id: a.id, x: (p[0] * e1[0] + p[1] * e1[1] + p[2] * e1[2]) * scale,
+                 y: (p[0] * e2[0] + p[1] * e2[1] + p[2] * e2[2]) * scale };
+    });
+    if (n > 1) {
+        d3.forceSimulation(nodes)
+            .force('link', d3.forceLink(bonds.map(b => ({ ...b }))).id(d => d.id).distance(linkPx).strength(1))
+            .force('repel', d3.forceManyBody().strength(-40).distanceMax(linkPx({ length: meanBond }) * 2.5))
+            .force('collide', d3.forceCollide(NODE_R + 6))
+            .stop()
+            .tick(300);
+    }
+    const [x0, x1] = d3.extent(nodes, d => d.x), [y0, y1] = d3.extent(nodes, d => d.y);
+    return {
+        positions: Object.fromEntries(nodes.map(d => [d.id, { x: d.x - x0, y: d.y - y0 }])),
+        width: x1 - x0, height: y1 - y0,
+    };
+}
+
 // ===== Layout =====
 function computePositions(graphData, layout) {
     const isProp = layout === 'proportional';
@@ -226,12 +274,37 @@ function computePositions(graphData, layout) {
     let yPropCursor = 20;
     const bandBounds = [];
 
+    // Bindungen innerhalb der Liganden je Residuum
+    const ligandBonds = d3.group(graphData.edges.filter(e => e.type === 'ligand'),
+        e => e.source.slice(0, e.source.lastIndexOf('_')));
+
     graphData.residues.forEach(res => {
         const ri = res.index;
         const pfx = s => `${res.chain}_${res.pos}_${s}`;
+
+        // Bänder liegen lückenlos untereinander; Liganden-Bänder sind so hoch wie nötig
+        const yStart = ri === 0 ? 0 : bandBounds[ri - 1].yEnd;
+
+        // --- Ligand: eigenes Band, mindestens so hoch wie das einer Aminosäure ---
+        const ligBonds = ligandBonds.get(`${res.chain}_${res.pos}`);
+        if (ligBonds) {
+            const ids = [...new Set(ligBonds.flatMap(e => [e.source, e.target]))];
+            const linkPx = isProp ? b => b.length * PROP_SCALE : () => SC_RING_SIDE;
+            const lig = layoutLigand(ids.map(id => atomById[id]), ligBonds, linkPx);
+            const bandH = isProp ? lig.height + 2 * LIGAND_PAD : Math.max(BAND_HEIGHT, lig.height + 2 * LIGAND_PAD);
+            const top = yStart + (bandH - lig.height) / 2;
+            Object.entries(lig.positions).forEach(([id, p]) => {
+                positions[id] = { x: BACKBONE_X + p.x, y: top + p.y };
+            });
+            const yEnd = yStart + bandH;
+            bandBounds.push({ yStart, yEnd });
+            if (isProp) yPropCursor = yEnd + PROP_SCALE * 0.66;
+            return;
+        }
+
         const nId = pfx('N'), caId = pfx('CA'), cId = pfx('C');
         const oId = pfx('O'), oxtId = pfx('OXT');
-        const bandY = ri * BAND_HEIGHT;
+        const bandY = yStart;
 
         // --- Backbone Y positions ---
         let yN, yCA, yC;
@@ -440,7 +513,7 @@ function render(canvas, graphData, bondStyle, layout, animate) {
     const contentW = Math.max(maxX, 500, viewW);
     const contentH = layout === 'proportional'
         ? maxY + 20
-        : graphData.residues.length * BAND_HEIGHT + 10;
+        : (bandBounds.length ? bandBounds[bandBounds.length - 1].yEnd : 0) + 10;
 
     canvas.state.residues = graphData.residues;
     canvas.state.bandBounds = bandBounds;
@@ -554,8 +627,8 @@ function render(canvas, graphData, bondStyle, layout, animate) {
             update => update,
             fadeOut,
         )
-        .attr('stroke-width', e => e.type === 'sidechain' ? 1.8 : 2.5)
-        .attr('stroke-dasharray', e => e.type === 'sidechain' ? '5,3' : null)
+        .attr('stroke-width', e => e.type === 'sidechain' || e.type === 'ligand' ? 1.8 : 2.5)
+        .attr('stroke-dasharray', e => e.type === 'sidechain' ? '5,3' : e.type === 'ligand' ? '8,3,2,3' : null)
         .call(sel => sel.select('title').text(e =>
             `${atomLabel(e.source)}–${atomLabel(e.target)}: ${e.length} Å (${BOND_TYPE_LABELS[e.type] || e.type})\n${referenceText(e)}`))
         .transition(t)
@@ -596,6 +669,7 @@ function render(canvas, graphData, bondStyle, layout, animate) {
         .attr('stroke', e => bondColor(e))
         .attr('d', e => arcGeometry(e).d);
     d3.select('#legend-disulfide').property('hidden', !graphData.edges.some(e => e.type === 'disulfide'));
+    d3.select('#legend-ligand').property('hidden', !graphData.edges.some(e => e.type === 'ligand'));
 
     // Längenbeschriftung neben der Kantenmitte; bei zu kurzen Kanten ausgeblendet.
     function bondLabel(e) {
@@ -1024,7 +1098,7 @@ const parentsByName = residues => new Map(residues.filter(r => r.parent).map(r =
 
 const BOND_TYPE_LABELS = {
     backbone: gettext('Backbone'), sidechain: gettext('Seitenkette'), peptide: gettext('Peptidbindung'),
-    disulfide: gettext('Disulfidbrücke'),
+    disulfide: gettext('Disulfidbrücke'), ligand: gettext('Ligand'),
 };
 
 // Tabelle "Anzahl und Anteil", standardmäßig absteigend nach Anzahl sortiert.
