@@ -9,3 +9,10 @@ bondamino/media/
 # IDE und persönliche Einstellungen
 .idea/
 .claude/settings.local.json
+
+# Konfiguration mit Zugangsdaten und Secret Key
+bondamino/.env
+.env
+
+# collectstatic
+bondamino/staticfiles/

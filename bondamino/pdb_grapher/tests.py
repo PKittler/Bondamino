@@ -5,15 +5,19 @@ import os
 import shutil
 import tempfile
 import urllib.error
+from pathlib import Path
 from unittest import mock
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.management import call_command
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+
+from bondamino.config import env, env_bool, env_list, parse_database_url, read_env_file
 
 from .models import Language, Note, PDBFile, UserSettings, WorkGroup
 from .utils import (
@@ -654,6 +658,85 @@ class PasswordResetTests(BaseTestCase):
         self.assertContains(response, 'is-invalid')
         self.member.refresh_from_db()
         self.assertTrue(self.member.check_password('pw'))
+
+
+class ConfigTests(TestCase):
+    def test_sqlite_urls(self):
+        self.assertEqual(Path(parse_database_url('sqlite:///db.sqlite3', '/srv/app')['NAME']),
+                         Path('/srv/app/db.sqlite3'))
+        config = parse_database_url('sqlite:////data/db.sqlite3', '/srv/app')
+        self.assertEqual(config['ENGINE'], 'django.db.backends.sqlite3')
+        self.assertEqual(Path(config['NAME']), Path('/data/db.sqlite3'))
+
+    def test_postgres_url_with_encoded_password(self):
+        config = parse_database_url('postgres://bonda:p%40ss%3Aw%2Frd@db.example.org:5433/bondamino?sslmode=require', '/')
+        self.assertEqual(config, {
+            'ENGINE': 'django.db.backends.postgresql', 'NAME': 'bondamino', 'USER': 'bonda', 'PASSWORD': 'p@ss:w/rd',
+            'HOST': 'db.example.org', 'PORT': '5433', 'OPTIONS': {'sslmode': 'require'},
+        })
+
+    def test_mariadb_url(self):
+        config = parse_database_url('mariadb://u:pw@db/bondamino', '/')
+        self.assertEqual((config['ENGINE'], config['PORT'], config['OPTIONS']),
+                         ('django.db.backends.mysql', '', {'charset': 'utf8mb4'}))
+
+    def test_unsupported_database(self):
+        with self.assertRaises(ValueError):
+            parse_database_url('mongodb://localhost/bondamino', '/')
+
+    def test_env_file(self):
+        path = os.path.join(tempfile.mkdtemp(), '.env')
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('# Kommentar\nDEBUG=1\nSECRET_KEY="a#b=c"\n\nALLOWED_HOSTS = a.org, b.org\n')
+        self.assertEqual(read_env_file(path), {'DEBUG': '1', 'SECRET_KEY': 'a#b=c', 'ALLOWED_HOSTS': 'a.org, b.org'})
+        self.assertEqual(read_env_file(path + '.missing'), {})
+
+    def test_empty_values_count_as_unset(self):
+        with mock.patch.dict(os.environ, {'X_EMPTY': '', 'X_ON': 'yes', 'X_LIST': 'a.org, b.org,'}):
+            self.assertEqual(env('X_EMPTY', 'default'), 'default')
+            self.assertTrue(env_bool('X_ON'))
+            self.assertFalse(env_bool('X_EMPTY'))
+            self.assertEqual(env_list('X_LIST'), ['a.org', 'b.org'])
+            self.assertEqual(env_list('X_EMPTY', ['x']), ['x'])
+
+    def test_no_secret_key_in_code(self):
+        settings_file = os.path.join(settings.BASE_DIR, 'bondamino', 'settings.py')
+        with open(settings_file, encoding='utf-8') as f:
+            self.assertNotIn('django-insecure', f.read())
+
+
+class SetupCommandTests(TestCase):
+    def run_setup(self, answers, env_file):
+        answers = iter(answers)
+        with mock.patch('builtins.input', lambda prompt='': next(answers)), \
+                mock.patch('getpass.getpass', lambda prompt='': next(answers)):
+            call_command('setup', env_file=env_file, skip_finish=True, stdout=open(os.devnull, 'w'))
+
+    def test_writes_env_file(self):
+        env_file = os.path.join(tempfile.mkdtemp(), '.env')
+        self.run_setup([
+            '1', 'db.sqlite3',                       # SQLite
+            'bondamino.example.org', 'y', 'n', '',   # Domain, HTTPS, kein DEBUG, Zeitzone
+            '1', 'smtp.example.org', '1', '', 'mailer', 's3cret', 'Bondamino <noreply@example.org>', '',
+            '',                                      # schreiben
+        ], env_file)
+        values = read_env_file(env_file)
+        self.assertEqual(values['DATABASE_URL'], 'sqlite:///db.sqlite3')
+        self.assertEqual(values['ALLOWED_HOSTS'], 'bondamino.example.org')
+        self.assertEqual((values['HTTPS'], values['DEBUG']), ('1', '0'))
+        self.assertEqual((values['EMAIL_HOST'], values['EMAIL_PORT'], values['EMAIL_USE_TLS']),
+                         ('smtp.example.org', '587', '1'))
+        self.assertEqual(values['EMAIL_HOST_PASSWORD'], 's3cret')
+        self.assertGreaterEqual(len(values['SECRET_KEY']), 50)
+
+    def test_keeps_secret_key_and_extra_values(self):
+        env_file = os.path.join(tempfile.mkdtemp(), '.env')
+        with open(env_file, 'w', encoding='utf-8') as f:
+            f.write('SECRET_KEY=bestehend\nLOG_LEVEL=INFO\nDEBUG=1\n')
+        self.run_setup(['', '', '', '', '', '', '2', ''], env_file)
+        values = read_env_file(env_file)
+        self.assertEqual((values['SECRET_KEY'], values['LOG_LEVEL'], values['DEBUG']), ('bestehend', 'INFO', '1'))
+        self.assertTrue(os.path.exists(env_file + '.bak'))
 
 
 def atom_line(serial, name, res_seq, x):

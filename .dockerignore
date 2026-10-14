@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+**/__pycache__
+**/*.pyc
+bondamino/.env
+bondamino/.env.*
+!bondamino/.env.example
+bondamino/db.sqlite3
+bondamino/media
+bondamino/staticfiles
+.env

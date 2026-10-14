@@ -1,0 +1,3 @@
+# Bondamino mit MariaDB oder MySQL (braucht die MariaDB/MySQL-Client-Bibliothek, siehe README)
+-r requirements.txt
+mysqlclient~=2.2

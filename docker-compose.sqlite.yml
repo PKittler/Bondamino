@@ -1,0 +1,35 @@
+# Bondamino mit SQLite (ein Container, Datenbank im Volume). Start:
+# docker compose -f docker-compose.sqlite.yml up -d
+# Variablen in der Datei .env neben dieser Datei (Vorlage: .env.example) oder in Portainer.
+services:
+  bondamino:
+    image: ${BONDAMINO_IMAGE:-ghcr.io/pkittler/bondamino:latest}
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${BONDAMINO_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: sqlite:////data/db.sqlite3
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
+      HTTPS: ${HTTPS:-0}
+      TIME_ZONE: ${TIME_ZONE:-Europe/Berlin}
+      # Leer lassen: der Schlüssel wird beim ersten Start erzeugt und in /data gespeichert
+      SECRET_KEY: ${SECRET_KEY:-}
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-}
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-}
+      # Erster Administrator, wird nur angelegt, solange es noch keinen gibt
+      DJANGO_SUPERUSER_USERNAME: ${ADMIN_USERNAME:-}
+      DJANGO_SUPERUSER_EMAIL: ${ADMIN_EMAIL:-}
+      DJANGO_SUPERUSER_PASSWORD: ${ADMIN_PASSWORD:-}
+    volumes:
+      - bondamino-data:/data
+
+volumes:
+  bondamino-data:

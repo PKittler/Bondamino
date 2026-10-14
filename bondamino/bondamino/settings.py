@@ -13,20 +13,37 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 
+from .config import env, env_bool, env_list, load_env_file, parse_database_url, read_secret_key
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Konfiguration kommt aus Umgebungsvariablen; lokal ergänzt um die Datei .env neben manage.py
+# (anlegen mit `python manage.py setup`, Vorlage: .env.example). Gesetzte Variablen haben Vorrang.
+load_env_file(env('BONDAMINO_ENV_FILE', str(BASE_DIR / '.env')))
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+# Nie im Code: aus SECRET_KEY oder aus der Datei SECRET_KEY_FILE (Docker legt sie im
+# Datenvolume an). Ohne Schlüssel startet Django nicht.
+SECRET_KEY = env('SECRET_KEY') or (read_secret_key(env('SECRET_KEY_FILE')) if env('SECRET_KEY_FILE') else '')
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-ywuj$1f6q5q4znj59r5a-w5kt3t3uxa$j(em3ox-amz#@d0c)y'
+# Nur für die Entwicklung einschalten (DEBUG=1)
+DEBUG = env_bool('DEBUG', False)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Domains, unter denen Bondamino erreichbar ist, z. B. ALLOWED_HOSTS=bondamino.example.org
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', ['localhost', '127.0.0.1', '[::1]'] if DEBUG else [])
 
-ALLOWED_HOSTS = []
+# Läuft Bondamino hinter einem Reverse Proxy mit HTTPS (HTTPS=1): sichere Cookies und das vom
+# Proxy gesetzte X-Forwarded-Proto auswerten.
+HTTPS = env_bool('HTTPS', False)
+SESSION_COOKIE_SECURE = HTTPS
+CSRF_COOKIE_SECURE = HTTPS
+if HTTPS:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+# Formulare dürfen von diesen Adressen abgeschickt werden; Standard: die ALLOWED_HOSTS
+CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS', [
+    f"{'https' if HTTPS else 'http'}://{host.lstrip('.')}" for host in ALLOWED_HOSTS
+    if host not in ('*', '[::1]') and not host.startswith('.')
+])
 
 
 # Application definition
@@ -43,6 +60,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Statische Dateien ohne separaten Webserver ausliefern
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -79,10 +98,12 @@ WSGI_APPLICATION = 'bondamino.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# DATABASE_URL, z. B. postgres://user:passwort@host:5432/bondamino oder
+# mariadb://user:passwort@host:3306/bondamino; ohne Angabe SQLite neben manage.py.
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        **parse_database_url(env('DATABASE_URL', 'sqlite:///db.sqlite3'), BASE_DIR),
+        'CONN_MAX_AGE': int(env('CONN_MAX_AGE', '60')),
     }
 }
 
@@ -114,7 +135,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # damit dort jede Sprache angelegt werden kann, für die es eine Übersetzung gibt.
 LANGUAGE_CODE = 'de'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = env('TIME_ZONE', 'UTC')
 
 USE_I18N = True
 
@@ -125,6 +146,12 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = '/static/'
+# Ziel von `manage.py collectstatic`; WhiteNoise liefert die Dateien von dort aus
+STATIC_ROOT = env('STATIC_ROOT', str(BASE_DIR / 'staticfiles'))
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -133,7 +160,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Uploaded PDB files are stored here (not served publicly, see bondamino/urls.py)
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = env('MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
 
 # Login: users are created by the admin only, there is no self-registration
 LOGIN_URL = 'login'
@@ -145,11 +172,22 @@ PASSWORD_RESET_TIMEOUT = 24 * 60 * 60
 
 # E-Mail-Versand (Einladung, Passwort vergessen). Ohne Konfiguration erscheinen die E-Mails
 # in der Konsole des Servers; für den Versand per SMTP die Umgebungsvariablen setzen.
-EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
-EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
-EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 25))
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', '') == '1'
-EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', '') == '1'
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'Bondamino <noreply@localhost>')
+EMAIL_BACKEND = env('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = env('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(env('EMAIL_PORT', '25'))
+EMAIL_HOST_USER = env('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS')
+EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL')
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', 'Bondamino <noreply@localhost>')
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+# Fehler und Warnungen in die Konsole (bei Docker: docker logs), auch ohne DEBUG
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {'console': {'class': 'logging.StreamHandler'}, 'null': {'class': 'logging.NullHandler'}},
+    'root': {'handlers': ['console'], 'level': env('LOG_LEVEL', 'WARNING')},
+    # Anfragen mit fremdem Host (meist Bots) beantwortet Django mit 400; nicht protokollieren
+    'loggers': {'django.security.DisallowedHost': {'handlers': ['null'], 'propagate': False}},
+}
