@@ -7,7 +7,7 @@ template: `.env.example` in the repository root) is loaded first; variables that
 set in the environment take precedence. The helpers that read and parse the variables live in
 `bondamino/config.py`.
 
-Environment variables (defaults and meaning are documented in the README section
+Environment variables (defaults and meaning are documented in INSTALL.md, section
 "Configuration reference"):
 
     BONDAMINO_ENV_FILE: Path of the .env file to load instead of `bondamino/.env`.
@@ -25,7 +25,7 @@ Environment variables (defaults and meaning are documented in the README section
     LOG_LEVEL: Level of the console log output.
 
 To add a new setting, read it with `env()`, `env_bool()` or `env_list()` from config.py,
-give it a safe default, and document it in the README "Configuration reference", in
+give it a safe default, and document it in INSTALL.md ("Configuration reference"), in
 `.env.example` and, if it is needed in containers, in the docker-compose files.
 
 See https://docs.djangoproject.com/en/5.2/topics/settings/ and

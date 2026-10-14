@@ -1,9 +1,9 @@
 # Bondamino with MariaDB. Start: docker compose -f docker-compose.mariadb.yml up -d
 # Variables in the file .env next to this file (template: .env.example) or in Portainer.
-# The meaning of the variables is described in the README section "Configuration reference".
+# The meaning of the variables is described in INSTALL.md, section "Configuration reference".
 services:
   bondamino:
-    image: ${BONDAMINO_IMAGE:-ghcr.io/pkittler/bondamino:latest}
+    image: ${BONDAMINO_IMAGE:-registry.gitlab.com/d11m-group/bondamino:latest}
     build: .
     restart: unless-stopped
     ports:

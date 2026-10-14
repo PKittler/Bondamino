@@ -14,7 +14,7 @@ Existing values from the ``.env`` file are offered as defaults, so the command c
 configuration. ``--skip-finish`` only writes the file, ``--finish`` only prepares the database.
 
 Not needed for Docker, Portainer and the like: there the configuration comes from environment variables
-(see docker-compose.yml and README).
+(see docker-compose.yml and INSTALL.md).
 """
 import getpass
 import os

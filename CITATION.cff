@@ -1,0 +1,83 @@
+cff-version: 1.2.0
+message: >-
+  If you use Bondamino in published work, please cite it as below, together with the data
+  sources behind your results (see CITATION.md).
+type: software
+title: "Bondamino: interactive analysis of bond geometry in protein structures"
+abstract: >-
+  Bondamino is a web application that reads protein structures in PDB format and shows bond
+  lengths, bond angles, dihedral angles and the Ramachandran plot as interactive graphs, with
+  statistics against published reference values (Engh & Huber 2001, CCP4 Monomer Library,
+  Top8000), exports and shared work groups.
+authors:
+  - family-names: Kittler
+    given-names: Philipp
+repository-code: "https://gitlab.com/d11m-group/bondamino"
+license: AGPL-3.0-or-later
+keywords:
+  - protein structure
+  - structure validation
+  - bond lengths
+  - bond angles
+  - Ramachandran plot
+  - Protein Data Bank
+references:
+  - type: book
+    title: "Structure quality and target parameters"
+    authors:
+      - family-names: Engh
+        given-names: Richard A.
+      - family-names: Huber
+        given-names: Robert
+    collection-title: "International Tables for Crystallography, Vol. F"
+    year: 2001
+    start: 382
+    end: 392
+    doi: 10.1107/97809553602060000695
+  - type: article
+    title: "REFMAC5 dictionary: organization of prior chemical knowledge and guidelines for its use"
+    authors:
+      - family-names: Vagin
+        given-names: Alexei A.
+      - family-names: Steiner
+        given-names: Roberto A.
+      - family-names: Lebedev
+        given-names: Andrey A.
+      - family-names: Potterton
+        given-names: Liz
+      - family-names: McNicholas
+        given-names: Stuart
+      - family-names: Long
+        given-names: Fei
+      - family-names: Murshudov
+        given-names: Garib N.
+    journal: "Acta Crystallographica Section D"
+    volume: 60
+    start: 2184
+    end: 2195
+    year: 2004
+    doi: 10.1107/S0907444904023510
+  - type: article
+    title: "MolProbity: More and better reference data for improved all-atom structure validation"
+    authors:
+      - family-names: Williams
+        given-names: Christopher J.
+      - name: "et al."
+    journal: "Protein Science"
+    volume: 27
+    start: 293
+    end: 315
+    year: 2018
+    doi: 10.1002/pro.3330
+  - type: article
+    title: "The Protein Data Bank"
+    authors:
+      - family-names: Berman
+        given-names: Helen M.
+      - name: "et al."
+    journal: "Nucleic Acids Research"
+    volume: 28
+    start: 235
+    end: 242
+    year: 2000
+    doi: 10.1093/nar/28.1.235

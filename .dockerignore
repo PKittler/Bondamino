@@ -1,7 +1,7 @@
 # Kept out of the Docker build context: repository metadata, caches and local data or
 # configuration (secrets, database, uploads, collected static files) of a standalone installation.
 .git
-.github
+.gitlab-ci.yml
 .idea
 **/__pycache__
 **/*.pyc

@@ -1,3 +1,3 @@
-# Bondamino with MariaDB or MySQL (needs the MariaDB/MySQL client library, see README)
+# Bondamino with MariaDB or MySQL (needs the MariaDB/MySQL client library, see INSTALL.md)
 -r requirements.txt
 mysqlclient~=2.2
