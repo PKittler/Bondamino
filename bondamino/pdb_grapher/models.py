@@ -22,6 +22,33 @@ class Language(models.Model):
         return self.name
 
 
+class UserSettings(models.Model):
+    """Persönliche Einstellungen eines Users. Wird beim ersten Speichern angelegt; bis dahin
+    gelten Sprache aus Cookie bzw. Browser und die helle Darstellung."""
+    THEME_LIGHT = 'light'
+    THEME_DARK = 'dark'
+    THEME_CHOICES = [(THEME_LIGHT, _('Hell')), (THEME_DARK, _('Dunkel'))]
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, verbose_name=_('User'), on_delete=models.CASCADE, related_name='user_settings',
+    )
+    # Code einer im Admin angelegten Sprache; leer = Cookie bzw. Browser
+    language = models.CharField(_('Sprache'), max_length=15, blank=True)
+    theme = models.CharField(_('Darstellung'), max_length=10, choices=THEME_CHOICES, default=THEME_LIGHT)
+
+    class Meta:
+        verbose_name = _('Einstellungen')
+        verbose_name_plural = _('Einstellungen')
+
+    def __str__(self):
+        return str(self.user)
+
+    @classmethod
+    def of(cls, user):
+        """Gespeicherte Einstellungen des Users oder ungespeicherte Standardwerte."""
+        return cls.objects.filter(user=user).first() or cls(user=user)
+
+
 class WorkGroup(models.Model):
     """Arbeitsgruppe eines Instituts/einer Universität. Mitglieder werden vom Admin
     zugewiesen; der Gruppenleiter darf PDB-Dateien aus der Gruppe entfernen."""

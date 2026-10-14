@@ -1,5 +1,5 @@
 {% load i18n versioned_static %}<!DOCTYPE html>
-<html lang="{{ LANGUAGE_CODE }}" data-bs-theme="light">
+<html lang="{{ LANGUAGE_CODE }}" data-bs-theme="{{ user_settings.theme|default:'light' }}"{% if user_settings %} data-theme-source="user"{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,6 +19,55 @@
             Bondamino
         </a>
         <div class="d-flex align-items-center gap-2">
+            {% if user.is_authenticated %}
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary rounded-circle icon-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                        title="{% translate 'Benutzerkonto' %}" aria-label="{% translate 'Benutzerkonto' %}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M3 14s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1zm5-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6"/>
+                    </svg>
+                </button>
+                <div class="dropdown-menu dropdown-menu-end shadow-sm account-menu">
+                    <div class="dropdown-header account-menu-user">
+                        <span class="d-block fw-medium text-body">{{ user.get_full_name|default:user.username }}</span>
+                        {% if user.get_full_name %}<span class="d-block small">{{ user.username }}</span>{% endif %}
+                    </div>
+                    <a class="dropdown-item" href="{% url 'pdb_grapher:account' %}">{% translate 'Konto' %}</a>
+                    {% if available_languages|length > 1 %}
+                        <hr class="dropdown-divider">
+                        <h6 class="dropdown-header">{% translate 'Sprache' %}</h6>
+                        <form method="post" action="{% url 'pdb_grapher:set_language' %}" class="m-0">
+                            {% csrf_token %}
+                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                            {% for language in available_languages %}
+                                <button type="submit" name="language" value="{{ language.code }}" lang="{{ language.code }}"
+                                        class="dropdown-item menu-option{% if language.code == LANGUAGE_CODE %} is-selected{% endif %}"
+                                        {% if language.code == LANGUAGE_CODE %}aria-current="true"{% endif %}>
+                                    <svg class="menu-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0"/></svg><span>{{ language.name }}</span>
+                                </button>
+                            {% endfor %}
+                        </form>
+                    {% endif %}
+                    <hr class="dropdown-divider">
+                    <h6 class="dropdown-header">{% translate 'Darstellung' %}</h6>
+                    <form method="post" action="{% url 'pdb_grapher:set_theme' %}" class="m-0" id="theme-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button type="submit" name="theme" value="light" class="dropdown-item menu-option theme-option{% if user_settings.theme != 'dark' %} is-selected{% endif %}">
+                            <svg class="menu-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0"/></svg><span>{% translate 'Hell' %}</span>
+                        </button>
+                        <button type="submit" name="theme" value="dark" class="dropdown-item menu-option theme-option{% if user_settings.theme == 'dark' %} is-selected{% endif %}">
+                            <svg class="menu-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0"/></svg><span>{% translate 'Dunkel' %}</span>
+                        </button>
+                    </form>
+                    <hr class="dropdown-divider">
+                    <form method="post" action="{% url 'logout' %}" class="m-0">
+                        {% csrf_token %}
+                        <button type="submit" class="dropdown-item">{% translate 'Abmelden' %}</button>
+                    </form>
+                </div>
+            </div>
+            {% else %}
             <button id="theme-toggle" class="btn btn-outline-secondary rounded-circle icon-btn" type="button" title="{% translate 'Dark Mode umschalten' %}" aria-label="{% translate 'Dark Mode umschalten' %}">
                 <span class="theme-icon">☾</span>
             </button>
@@ -33,11 +82,6 @@
                     </select>
                 </form>
             {% endif %}
-            {% if user.is_authenticated %}
-                <form method="post" action="{% url 'logout' %}" class="m-0">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-outline-secondary btn-sm">{% translate 'Abmelden' %}</button>
-                </form>
             {% endif %}
         </div>
     </div>
@@ -54,21 +98,47 @@
 </main>
 
 <script>
-    // Theme persistence
+    // Darstellung: angemeldet aus den Einstellungen (vom Server gesetzt), sonst aus dem Browser.
+    // Die Einstellung wird auch im Browser gemerkt, damit die Anmeldeseite passt.
     (function () {
-        const saved = localStorage.getItem('theme') || 'light';
-        document.documentElement.setAttribute('data-bs-theme', saved);
+        const html = document.documentElement;
+        try {
+            if (html.dataset.themeSource === 'user') localStorage.setItem('theme', html.getAttribute('data-bs-theme'));
+            else html.setAttribute('data-bs-theme', localStorage.getItem('theme') || 'light');
+        } catch (e) { /* ohne Speicher: hell bzw. Einstellung */ }
     })();
 </script>
 <script src="{% static_v 'pdb_grapher/vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
 <script>
-    document.getElementById('theme-toggle').addEventListener('click', function () {
-        const html = document.documentElement;
-        const current = html.getAttribute('data-bs-theme');
-        const next = current === 'dark' ? 'light' : 'dark';
-        html.setAttribute('data-bs-theme', next);
-        localStorage.setItem('theme', next);
-    });
+    function applyTheme(theme) {
+        document.documentElement.setAttribute('data-bs-theme', theme);
+        try { localStorage.setItem('theme', theme); } catch (e) { /* ignorieren */ }
+        document.querySelectorAll('.theme-option').forEach(function (option) {
+            option.classList.toggle('is-selected', option.value === theme);
+        });
+    }
+
+    const themeToggle = document.getElementById('theme-toggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', function () {
+            applyTheme(document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark');
+        });
+    }
+
+    // Darstellung im Account-Menü: sofort umschalten und im Hintergrund speichern; ohne
+    // JavaScript sendet das Formular normal und lädt die Seite neu.
+    const themeForm = document.getElementById('theme-form');
+    if (themeForm) {
+        themeForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const theme = event.submitter.value;
+            const data = new FormData(themeForm);
+            data.set('theme', theme);
+            applyTheme(theme);
+            fetch(themeForm.action, { method: 'POST', body: data, headers: { 'X-Requested-With': 'fetch' } })
+                .catch(function (err) { console.error('Darstellung konnte nicht gespeichert werden:', err); });
+        });
+    }
 
     // Formulare mit data-confirm erst nach Rückfrage absenden. Läuft in der Capture-Phase
     // vor seitenspezifischen Handlern, damit ein Abbruch auch AJAX-Formulare stoppt.

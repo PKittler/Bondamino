@@ -3,17 +3,18 @@ from django.utils import translation
 from django.utils.cache import patch_vary_headers
 from django.utils.translation.trans_real import parse_accept_lang_header
 
-from .models import Language
+from .models import Language, UserSettings
 
 
-def select_language(request, codes):
-    """Gewählte Sprache (Cookie), sonst die passendste laut Browser, sonst die Standardsprache.
-    Berücksichtigt werden nur die im Admin angelegten Sprachen `codes`."""
+def select_language(request, codes, preferred=''):
+    """Sprache aus den Einstellungen des Users (`preferred`), sonst die gewählte (Cookie), sonst
+    die passendste laut Browser, sonst die Standardsprache. Berücksichtigt werden nur die im
+    Admin angelegten Sprachen `codes`."""
     if not codes:
         return settings.LANGUAGE_CODE
-    chosen = request.COOKIES.get(settings.LANGUAGE_COOKIE_NAME)
-    if chosen in codes:
-        return chosen
+    for chosen in (preferred, request.COOKIES.get(settings.LANGUAGE_COOKIE_NAME)):
+        if chosen in codes:
+            return chosen
     for accepted, _ in parse_accept_lang_header(request.META.get('HTTP_ACCEPT_LANGUAGE', '')):
         accepted = accepted.lower()
         if accepted in codes:
@@ -28,14 +29,17 @@ def select_language(request, codes):
 
 class LanguageMiddleware:
     """Ersetzt Djangos LocaleMiddleware: Aktiviert werden nur Sprachen, die im Admin angelegt
-    sind. Die Sprachen merkt sich der Request für die Auswahl in der Navbar."""
+    sind. Die Sprachen und die Einstellungen des Users merkt sich der Request für die Navbar.
+    Steht nach der AuthenticationMiddleware, weil die Einstellungen am User hängen."""
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
         request.available_languages = list(Language.objects.all())
-        language = select_language(request, [lang.code for lang in request.available_languages])
+        request.user_settings = UserSettings.of(request.user) if request.user.is_authenticated else None
+        preferred = request.user_settings.language if request.user_settings else ''
+        language = select_language(request, [lang.code for lang in request.available_languages], preferred)
         translation.activate(language)
         request.LANGUAGE_CODE = translation.get_language()
 

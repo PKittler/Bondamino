@@ -2,7 +2,9 @@ import json
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import PasswordChangeForm
 from django.db import transaction
 from django.db.models import OuterRef, Q, Subquery
 from django.http import FileResponse, HttpResponseForbidden, JsonResponse
@@ -13,8 +15,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_POST
 
-from .forms import AvailabilityForm, NoteForm, PDBUploadForm
-from .models import Language, Note, PDBFile, WorkGroup
+from .forms import AvailabilityForm, NoteForm, PDBUploadForm, UserSettingsForm
+from .models import Language, Note, PDBFile, UserSettings, WorkGroup
 from .utils import (
     RAMACHANDRAN_SOURCE, REFERENCE_SOURCES, build_average_graph, build_bond_ensemble, build_graph, list_altlocs, list_models,
     parse_header, parse_pdb,
@@ -91,23 +93,80 @@ def index(request):
     })
 
 
-@require_POST
-def set_language(request):
-    """Merkt sich die gewählte Sprache im Cookie. Nur im Admin angelegte Sprachen sind gültig."""
+def _safe_next(request):
+    """Ziel aus dem Feld `next`, falls es auf diese Seite zeigt, sonst die Startseite."""
     next_url = request.POST.get('next', '')
     if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()},
                                            require_https=request.is_secure()):
         next_url = reverse('pdb_grapher:index')
-    response = redirect(next_url)
+    return next_url
+
+
+def _set_language_cookie(response, code):
+    response.set_cookie(
+        settings.LANGUAGE_COOKIE_NAME, code,
+        max_age=settings.LANGUAGE_COOKIE_AGE, path=settings.LANGUAGE_COOKIE_PATH,
+        domain=settings.LANGUAGE_COOKIE_DOMAIN, secure=settings.LANGUAGE_COOKIE_SECURE,
+        httponly=settings.LANGUAGE_COOKIE_HTTPONLY, samesite=settings.LANGUAGE_COOKIE_SAMESITE,
+    )
+
+
+@require_POST
+def set_language(request):
+    """Merkt sich die gewählte Sprache im Cookie und, wenn angemeldet, in den Einstellungen des
+    Users. Nur im Admin angelegte Sprachen sind gültig."""
+    response = redirect(_safe_next(request))
     code = request.POST.get('language')
     if Language.objects.filter(code=code).exists():
-        response.set_cookie(
-            settings.LANGUAGE_COOKIE_NAME, code,
-            max_age=settings.LANGUAGE_COOKIE_AGE, path=settings.LANGUAGE_COOKIE_PATH,
-            domain=settings.LANGUAGE_COOKIE_DOMAIN, secure=settings.LANGUAGE_COOKIE_SECURE,
-            httponly=settings.LANGUAGE_COOKIE_HTTPONLY, samesite=settings.LANGUAGE_COOKIE_SAMESITE,
-        )
+        _set_language_cookie(response, code)
+        if request.user.is_authenticated:
+            UserSettings.objects.update_or_create(user=request.user, defaults={'language': code})
     return response
+
+
+@login_required
+@require_POST
+def set_theme(request):
+    """Darstellung (hell/dunkel) in den Einstellungen speichern. Per fetch ohne Weiterleitung."""
+    theme = request.POST.get('theme')
+    if theme in dict(UserSettings.THEME_CHOICES):
+        UserSettings.objects.update_or_create(user=request.user, defaults={'theme': theme})
+    elif request.headers.get('X-Requested-With') == 'fetch':
+        return JsonResponse({'error': 'invalid theme'}, status=400)
+    if request.headers.get('X-Requested-With') == 'fetch':
+        return JsonResponse({'theme': UserSettings.of(request.user).theme})
+    return redirect(_safe_next(request))
+
+
+@login_required
+def account(request):
+    """Konto des Users: Angaben (vom Admin gepflegt), Passwort ändern, Einstellungen."""
+    user_settings = UserSettings.of(request.user)
+    action = request.POST.get('action') if request.method == 'POST' else None
+    password_form = PasswordChangeForm(request.user, request.POST if action == 'password' else None)
+    settings_form = UserSettingsForm(request.POST if action == 'settings' else None, instance=user_settings,
+                                     current_language=request.LANGUAGE_CODE)
+    for field in password_form.fields.values():
+        field.widget.attrs['class'] = 'form-control'
+
+    if action == 'password' and password_form.is_valid():
+        password_form.save()
+        # Sitzung bleibt nach der Änderung gültig
+        update_session_auth_hash(request, password_form.user)
+        messages.success(request, _('Das Passwort wurde geändert.'))
+        return redirect('pdb_grapher:account')
+    if action == 'settings' and settings_form.is_valid():
+        saved = settings_form.save()
+        response = redirect('pdb_grapher:account')
+        _set_language_cookie(response, saved.language)
+        messages.success(request, _('Die Einstellungen wurden gespeichert.'))
+        return response
+
+    return render(request, 'pdb_grapher/account.html', {
+        'password_form': password_form,
+        'settings_form': settings_form,
+        'groups': WorkGroup.objects.filter(members=request.user),
+    })
 
 
 @login_required

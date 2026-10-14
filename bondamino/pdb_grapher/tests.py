@@ -12,7 +12,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from .models import Language, Note, PDBFile, WorkGroup
+from .models import Language, Note, PDBFile, UserSettings, WorkGroup
 from .utils import (
     SIDECHAIN_BOND_REFERENCES, SIDECHAIN_BONDS, build_average_graph, build_bond_ensemble, build_graph, list_altlocs,
     parse_header, parse_pdb, ramachandran_region, ramachandran_value,
@@ -419,9 +419,16 @@ class LanguageTests(BaseTestCase):
         self.assertRedirects(response, reverse('pdb_grapher:index'), fetch_redirect_response=False)
 
     def test_selector_lists_admin_languages(self):
-        self.assertContains(self.index(), '<option value="en-gb" lang="en-gb" >English</option>', html=False)
+        self.assertContains(self.index(), 'name="language" value="en-gb" lang="en-gb"')
         Language.objects.filter(code='en-gb').delete()
         self.assertNotContains(self.index(), 'name="language"')
+
+    def test_anonymous_selector_on_login_page(self):
+        self.client.logout()
+        response = self.client.get(reverse('login'))
+        self.assertContains(response, '<option value="en-gb" lang="en-gb" >English</option>', html=False)
+        self.assertContains(response, 'id="theme-toggle"')
+        self.assertNotContains(response, 'account-menu')
 
     def test_javascript_catalog(self):
         self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = 'en-gb'
@@ -433,6 +440,93 @@ class LanguageTests(BaseTestCase):
         pdb = self.make_pdb(personal=True)
         response = self.client.post(reverse('pdb_grapher:delete', args=[pdb.pk]), follow=True)
         self.assertContains(response, '“test.pdb” has been deleted.')
+
+
+class AccountTests(BaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.login(username='uploader', password='pw')
+        self.url = reverse('pdb_grapher:account')
+
+    def test_requires_login(self):
+        self.client.logout()
+        response = self.client.get(self.url)
+        self.assertRedirects(response, f"{reverse('login')}?next={self.url}", fetch_redirect_response=False)
+
+    def test_page_shows_user_and_groups(self):
+        self.uploader.first_name, self.uploader.last_name = 'Ada', 'Lovelace'
+        self.uploader.save()
+        response = self.client.get(self.url)
+        self.assertContains(response, 'Ada Lovelace')
+        self.assertContains(response, '<span class="badge text-bg-primary">A</span>', html=True)
+        self.assertContains(response, '<span class="badge text-bg-primary">B</span>', html=True)
+
+    def test_menu_in_navbar(self):
+        response = self.client.get(reverse('pdb_grapher:index'))
+        self.assertContains(response, 'account-menu')
+        self.assertContains(response, f'href="{self.url}"')
+        self.assertContains(response, 'name="theme" value="dark"')
+        self.assertContains(response, 'Abmelden')
+        self.assertNotContains(response, 'id="theme-toggle"')
+
+    def test_change_password(self):
+        response = self.client.post(self.url, {
+            'action': 'password', 'old_password': 'pw',
+            'new_password1': 'Bondamino-2026!', 'new_password2': 'Bondamino-2026!',
+        })
+        self.assertRedirects(response, self.url)
+        self.uploader.refresh_from_db()
+        self.assertTrue(self.uploader.check_password('Bondamino-2026!'))
+        # Sitzung bleibt gültig
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_change_password_wrong_old_password(self):
+        response = self.client.post(self.url, {
+            'action': 'password', 'old_password': 'falsch',
+            'new_password1': 'Bondamino-2026!', 'new_password2': 'Bondamino-2026!',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'is-invalid')
+        self.uploader.refresh_from_db()
+        self.assertTrue(self.uploader.check_password('pw'))
+
+    def test_save_settings(self):
+        response = self.client.post(self.url, {'action': 'settings', 'language': 'en-gb', 'theme': 'dark'})
+        self.assertRedirects(response, self.url, fetch_redirect_response=False)
+        saved = UserSettings.objects.get(user=self.uploader)
+        self.assertEqual((saved.language, saved.theme), ('en-gb', 'dark'))
+        response = self.client.get(reverse('pdb_grapher:index'))
+        self.assertContains(response, '<html lang="en-gb" data-bs-theme="dark" data-theme-source="user">')
+
+    def test_settings_reject_unknown_language(self):
+        response = self.client.post(self.url, {'action': 'settings', 'language': 'fr', 'theme': 'dark'})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(UserSettings.objects.filter(user=self.uploader).exists())
+
+    def test_stored_language_wins_over_cookie(self):
+        UserSettings.objects.create(user=self.uploader, language='en-gb')
+        self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = 'de'
+        self.assertContains(self.client.get(reverse('pdb_grapher:index')), '<html lang="en-gb"')
+
+    def test_language_menu_saves_setting(self):
+        self.client.post(reverse('pdb_grapher:set_language'), {'language': 'en-gb', 'next': '/'})
+        self.assertEqual(UserSettings.objects.get(user=self.uploader).language, 'en-gb')
+
+    def test_set_theme(self):
+        url = reverse('pdb_grapher:set_theme')
+        response = self.client.post(url, {'theme': 'dark'}, HTTP_X_REQUESTED_WITH='fetch')
+        self.assertEqual(response.json(), {'theme': 'dark'})
+        self.assertEqual(UserSettings.objects.get(user=self.uploader).theme, 'dark')
+        response = self.client.post(url, {'theme': 'pink'}, HTTP_X_REQUESTED_WITH='fetch')
+        self.assertEqual(response.status_code, 400)
+        response = self.client.post(url, {'theme': 'light', 'next': '/?group=personal'})
+        self.assertRedirects(response, '/?group=personal', fetch_redirect_response=False)
+        self.assertEqual(UserSettings.objects.get(user=self.uploader).theme, 'light')
+
+    def test_set_theme_requires_login(self):
+        self.client.logout()
+        self.client.post(reverse('pdb_grapher:set_theme'), {'theme': 'dark'})
+        self.assertFalse(UserSettings.objects.exists())
 
 
 def atom_line(serial, name, res_seq, x):
