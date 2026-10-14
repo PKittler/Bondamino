@@ -1,4 +1,10 @@
-{% load i18n %}
+{% comment %}
+Partial: availability fields (personal checkbox and one checkbox per work group of the user).
+Included by index.html (upload dialog, form = PDBUploadForm) and edit.html (form = AvailabilityForm).
+
+Context:
+    form: AvailabilityForm or a subclass, with the fields personal and groups.
+{% endcomment %}{% load i18n %}
 <fieldset>
     <legend class="h6 mb-2">{% translate 'Verfügbar für' %}</legend>
     <div class="form-check">

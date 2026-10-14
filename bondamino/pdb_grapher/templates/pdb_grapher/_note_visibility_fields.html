@@ -1,4 +1,11 @@
-{% load i18n %}
+{% comment %}
+Partial: visibility of a note (radio buttons "visibility" and the work group checkboxes, shown
+by notes.js only when the note is shared with groups). Included by graph.html (new note) and
+_note_list.html (edit form of each note).
+
+Context:
+    form: NoteForm (fields visibility and groups).
+{% endcomment %}{% load i18n %}
 <fieldset class="note-visibility small">
     <legend class="visually-hidden">{% translate 'Sichtbar für' %}</legend>
     <div class="d-flex flex-wrap align-items-center column-gap-3 row-gap-1">

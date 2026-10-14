@@ -1,5 +1,13 @@
 {% extends 'pdb_grapher/base.html' %}
 {% load i18n %}
+{% comment %}
+Sign-in page, rendered by Django's LoginView (URL login/, configured in bondamino/urls.py).
+There is no self-registration; accounts are created in the admin.
+
+Context:
+    form: pdb_grapher.forms.LoginForm (throttles failed attempts, errors in non_field_errors).
+    next: URL to redirect to after signing in.
+{% endcomment %}
 
 {% block title %}Bondamino – {% translate 'Anmelden' %}{% endblock %}
 

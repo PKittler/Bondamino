@@ -1,3 +1,22 @@
+/**
+ * @fileoverview Bondamino styles on top of Bootstrap 5 (vendor/bootstrap).
+ *
+ * Loaded by base.html on every page. Light and dark mode use Bootstrap's
+ * `data-bs-theme` attribute on <html>; app colours are CSS custom properties
+ * defined on :root and overridden under [data-bs-theme="dark"]. graph.js reads
+ * several of them at runtime (e.g. --atom-<ELEMENT>, --bond-mono, --z-*).
+ *
+ * Sections:
+ *   - Fonts and colour variables (atoms, bonds)
+ *   - App bar, upload dialog, navbar menus, account page, file list (start page)
+ *   - Graph page layout: tabs, sequence bar, tab panes, side columns
+ *   - Notes tab
+ *   - Statistics tab, Ramachandran plot, reference Z-scores, bond lengths, histogram
+ *   - Data table
+ *   - Sequence strip and its markers (cis peptides, modifications, disulfides, gaps)
+ *   - Toolbar of the graph tab
+ *   - SVG elements of the protein graph
+ */
 /* ===== Fonts (on top of Bootstrap) ===== */
 :root {
     --bs-body-font-family: 'Roboto', sans-serif;
@@ -8,9 +27,6 @@
 :root {
     --band-label-color: var(--bs-secondary-color);
 
-    --bond-backbone-color: var(--bs-primary);
-    --bond-sidechain-color: var(--bs-secondary-color);
-    --bond-peptide-color: var(--bs-danger);
     --bond-label-color: var(--bs-secondary-color);
 
     --node-stroke: var(--bs-body-bg);
@@ -21,7 +37,7 @@
     --atom-S:  #e65100;
     --atom-H:  #9e9e9e;
     --atom-P:  #4a148c;
-    /* häufige Ionen */
+    /* common ions */
     --atom-CA: #2e7d32;
     --atom-MG: #827717;
     --atom-ZN: #5c6bc0;
@@ -63,15 +79,15 @@
     font-size: 1.1rem;
 }
 
-/* ===== Upload page ===== */
+/* ===== Upload dialog (start page) ===== */
 .border-dashed {
     border-style: dashed !important;
 }
 
-/* Sprachauswahl in der Navbar */
+/* Language select in the navbar (signed out) */
 .language-select { width: auto; }
 
-/* Account-Menü in der Navbar: Häkchen vor der gewählten Sprache bzw. Darstellung */
+/* Account menu in the navbar: check mark before the selected language and theme */
 .account-menu { min-width: 14rem; }
 .account-menu-user { white-space: normal; }
 .menu-option {
@@ -82,7 +98,7 @@
 .menu-check { flex: none; visibility: hidden; }
 .menu-option.is-selected .menu-check { visibility: visible; }
 
-/* Account-Seite */
+/* Account page */
 .account-facts {
     display: grid;
     grid-template-columns: max-content 1fr;
@@ -92,7 +108,7 @@
 .account-facts dt { font-weight: 400; color: var(--bs-secondary-color); }
 .account-facts dd { margin: 0; display: flex; flex-wrap: wrap; gap: 0.25rem; }
 
-/* Startseite: Toolbar über der Dateiliste; Zeilen sind auswählbar. */
+/* Start page: toolbar above the file list; rows are selectable (index.js). */
 .file-toolbar {
     padding: 8px 12px;
     border-bottom: var(--bs-border-width) solid var(--bs-border-color);
@@ -126,7 +142,7 @@ input[type="file"] {
     pointer-events: none;
 }
 
-/* Entfernen-Kreuz in Gruppen-Badges der Dateiliste */
+/* Remove cross in the group badges of the file list and of notes */
 .badge-remove {
     width: .5em;
     height: .5em;
@@ -149,18 +165,18 @@ input[type="file"] {
 
 .main-pane { min-width: 0; }
 
-/* Tab-Leiste mit Dateiname rechts; die Linie läuft unter beiden durch. */
+/* Tab bar with the file name on the right; the line runs underneath both. */
 .tabs-bar { border-bottom: var(--bs-border-width) solid var(--bs-border-color); }
 
-/* Sequenzleiste unter den Tabs (nur Graph und Daten); schließt oben an die Tabs
-   und unten an den Tab-Inhalt an. */
+/* Sequence bar below the tabs (Graph and Data only); joins the tabs at the top
+   and the tab content at the bottom. */
 .sequence-card {
     border-top: 0;
     border-radius: 0;
 }
 
-/* Gemeinsame Höhe der Tab-Inhalte; oben ohne Rahmen und Rundung, damit sie an die
-   Sequenzleiste bzw. die Tabs anschließen. */
+/* Common height of the tab contents (viewport minus navbar, tabs and sequence bar); no
+   top border or rounding so that they join the sequence bar or the tabs. */
 .pane-box {
     height: calc(100vh - 227px);
     min-height: 400px;
@@ -169,11 +185,11 @@ input[type="file"] {
     border-top-right-radius: 0;
 }
 
-/* Ohne Sequenzleiste steht den Tabs Statistiken und Anmerkungen deren Höhe zusätzlich zur Verfügung. */
-/* Tab "Winkel" hat dasselbe Layout wie "Statistiken" (.stats-pane) */
+/* Without the sequence bar, its height is added to the tabs that use .stats-pane
+   (Statistics and Ramachandran) and to the Notes tab. */
 .stats-pane.pane-box, .notes-pane.pane-box { height: calc(100vh - 227px + 80px); min-height: 480px; }
 
-/* Graph-Tab: Zeichenfläche und Legende nebeneinander */
+/* Graph tab: drawing area and legend side by side */
 .graph-pane-box { overflow: hidden; }
 .graph-pane-box .graph-toolbar {
     padding: 8px 12px;
@@ -181,10 +197,10 @@ input[type="file"] {
 }
 .graph-main { display: flex; flex: 1 1 auto; min-height: 0; }
 
-/* Model-Auswahl neben dem Dateinamen */
+/* Model and conformation selects next to the file name */
 .file-name .form-select { width: auto; }
 .graph-scroll-container { flex: 1 1 auto; min-width: 0; overflow: hidden; }
-/* Seitenspalte innerhalb eines Tabs (Legende im Graph-Tab, Download in den Statistiken) */
+/* Side column inside a tab (legend in the Graph tab, downloads in Statistics and Ramachandran) */
 .pane-aside {
     width: 170px;
     flex-shrink: 0;
@@ -193,8 +209,9 @@ input[type="file"] {
     overflow-y: auto;
 }
 
-/* ===== Anmerkungen ===== */
-/* Eingabefeld oben fest, darunter scrollt die Liste. */
+/* ===== Notes ===== */
+/* Input form fixed at the top, the list below it scrolls. [hidden] must win over
+   Bootstrap's display utilities (notes.js and graph.js toggle elements with it). */
 .notes-pane { overflow: hidden; }
 .notes-pane [hidden] { display: none !important; }
 .graph-legend [hidden] { display: none !important; }
@@ -211,12 +228,12 @@ input[type="file"] {
 }
 .note-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 
-/* ===== Statistiken ===== */
+/* ===== Statistics ===== */
 .stats-pane { flex-direction: row; overflow: hidden; }
 .stats-body { flex: 1 1 auto; min-width: 0; overflow: auto; }
 .export-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 
-/* Anzahl/Anteil-Tabellen (Elemente, Aminosäuren); auf breiten Bildschirmen nebeneinander. */
+/* Count/share tables (elements, amino acids); side by side on wide screens. */
 .stats-tables {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
@@ -226,22 +243,22 @@ input[type="file"] {
 
 .stats-share { font-variant-numeric: tabular-nums; }
 
-/* Einzelne Tabelle so breit wie eine Spalte von .stats-tables */
+/* Single table as wide as a column of .stats-tables */
 .stats-narrow { max-width: 640px; }
 
-/* Kennzahlen als Paare "Bezeichnung – Wert" */
+/* Key figures as "label – value" pairs */
 .stats-facts { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 0; }
 .stats-facts dt { font-size: .875em; font-weight: 500; color: var(--bs-secondary-color); }
 .stats-facts dd { margin: 0; font-size: 1.25rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .stats-share td { vertical-align: middle; }
 .stats-share .bar-cell { width: 40%; }
 
-/* Elemente je Kette: Spaltengruppe pro Kette, links durch eine Linie abgesetzt */
+/* Elements per chain: one column group per chain, separated by a line on the left */
 .stats-matrix { white-space: nowrap; }
 .stats-matrix .chain-start { border-left: 1px solid var(--bs-border-color); }
 .stats-matrix tbody th { font-weight: 400; }
 
-/* Summenzeile am Tabellenende */
+/* Total row at the end of a table */
 .stats-share .share-total > * {
     font-weight: 600;
     border-top: 2px solid var(--bs-border-color);
@@ -249,7 +266,7 @@ input[type="file"] {
     background: var(--bs-tertiary-bg);
 }
 
-/* Abschnitt Bindungen */
+/* Bonds section */
 .stats-bonds { white-space: nowrap; }
 .stats-bonds tbody th { font-weight: 400; }
 .stats-bonds .group-head > th {
@@ -259,7 +276,8 @@ input[type="file"] {
 }
 .stats-bonds .delta { margin-left: 6px; font-size: 0.8em; color: var(--bs-secondary-color); }
 
-/* Ramachandran-Plot: quadratisch, skaliert über viewBox mit der Breite */
+/* ===== Ramachandran plot ===== */
+/* Colours of the residue classes (general, Gly, Pro) and of the favoured/allowed regions */
 :root {
     --rama-general: #0d6efd;
     --rama-gly: #f08c00;
@@ -274,8 +292,8 @@ input[type="file"] {
     --rama-favored-fill: #1f3a5a;
     --rama-allowed-fill: #172636;
 }
-/* Quadratisch (φ und ψ gleich skaliert), so hoch wie der Tab, horizontal zentriert.
-   Ist der Tab schmaler als hoch, begrenzt die Breite; das SVG skaliert über viewBox. */
+/* Square (φ and ψ scaled equally), as high as the tab, centred horizontally.
+   If the tab is narrower than high, the width limits it; the SVG scales via viewBox. */
 .rama-body { display: flex; justify-content: center; align-items: stretch; overflow: hidden; }
 .rama-plot { height: 100%; aspect-ratio: 1; max-width: 100%; min-height: 280px; }
 .rama-plot svg { display: block; width: 100%; height: 100%; }
@@ -297,10 +315,11 @@ input[type="file"] {
 .rama-zero { stroke: var(--bs-border-color); stroke-dasharray: 3 3; }
 .rama-minor line { stroke: var(--bs-border-color-translucent); stroke-opacity: 0.45; }
 
-/* cis-Peptidbindung zwischen zwei Zellen der Sequenzleiste */
+/* cis peptide bond between two cells of the sequence bar */
 .seq-cis line { stroke: var(--bs-info); stroke-width: 2.5; stroke-dasharray: 2 2.5; }
 
-/* Abweichung vom Referenzwert (Z-Score): Bindungsfarbe "Referenz" und Statistik */
+/* ===== Reference deviation and bond lengths ===== */
+/* Deviation from the reference value (Z-score): bond colouring "reference" and statistics */
 :root {
     --z-ok: #2f9e44;
     --z-warn: #f08c00;
@@ -313,11 +332,11 @@ input[type="file"] {
     --z-outlier: #ff8787;
     --z-none: #6c757d;
 }
-/* Spezifischer als Bootstraps Tabellenfarbe */
+/* More specific than Bootstrap's table colour */
 .stats-bonds .z-warn { color: var(--z-warn); }
 .stats-bonds .z-outlier { color: var(--z-outlier); font-weight: 600; }
 
-/* Kürzeste (Min) und längste (Max) Bindungslänge */
+/* Shortest (min) and longest (max) bond length */
 :root {
     --length-min-color: #0b7285;
     --length-max-color: #d9480f;
@@ -345,7 +364,7 @@ input[type="file"] {
 .bond-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
 
 .bond-details > td { padding: 0 0 8px 22px; background: var(--bs-tertiary-bg); }
-/* Gruppen eines aufgeklappten Abschnitts in der Referenzbewertung */
+/* Groups of an expanded section in the reference evaluation */
 .ref-detail > * { background: var(--bs-tertiary-bg); }
 .ref-detail > th { padding-left: 28px; font-weight: 400; }
 .bond-list { width: auto; margin: 0; --bs-table-bg: transparent; }
@@ -353,7 +372,7 @@ input[type="file"] {
 .bond-list th { font-weight: 500; color: var(--bs-secondary-color); }
 .bond-list .badge { font-weight: 500; }
 
-/* Histogramm der Bindungslängen */
+/* Histogram of the bond lengths */
 .bond-histogram { position: relative; height: 260px; }
 .bond-histogram svg { display: block; }
 .hist-bar { fill: var(--bs-primary); transition: opacity .1s ease; }
@@ -382,7 +401,7 @@ input[type="file"] {
     min-width: 2px;
 }
 
-/* ===== Datentabelle ===== */
+/* ===== Data table ===== */
 .data-table-scroll {
     overflow: auto;
     position: relative;
@@ -421,7 +440,7 @@ input[type="file"] {
 .sequence-scroll {
     overflow-x: auto;
     overflow-y: hidden;
-    /* Abstand, damit (Overlay-)Scrollbars nicht über den Zellen liegen. */
+    /* Spacing so that (overlay) scrollbars do not cover the cells. */
     padding-bottom: 12px;
 }
 
@@ -450,36 +469,36 @@ input[type="file"] {
 .seq-cell.selected rect { fill: var(--bs-primary); }
 .seq-cell.selected text { fill: #fff; }
 
-/* Modifizierte Aminosäure (z. B. MSE, SEP): Punkt oben rechts in der Zelle */
+/* Modified amino acid (e.g. MSE, SEP): dot in the top right corner of the cell */
 :root { --modified-color: #2f9e44; }
 [data-bs-theme="dark"] { --modified-color: #69db7c; }
 .seq-cell circle.seq-mod-mark { display: none; fill: var(--modified-color); }
 .seq-cell.modified circle.seq-mod-mark { display: inline; }
 .seq-cell.selected circle.seq-mod-mark { fill: #fff; }
 
-/* Cystein mit Disulfidbrücke: Punkt oben links in der Zelle (Farbe wie Schwefel) */
+/* Cysteine with a disulfide bridge: dot in the top left corner of the cell (sulfur colour) */
 .seq-cell circle.seq-ss-mark { display: none; fill: var(--atom-S); }
 .seq-cell.disulfide circle.seq-ss-mark { display: inline; }
 .seq-cell.selected circle.seq-ss-mark { fill: #fff; }
 
-/* Disulfidbrücke im Graphen: gepunkteter Bogen */
+/* Disulfide bridge in the graph: dotted arc */
 .disulfide-bond { fill: none; stroke-width: 2.2; stroke-dasharray: 1 4; stroke-linecap: round; }
 
-/* Residuum, dessen Konformationen verschiedene Aminosäuren sind: Balken am unteren Zellrand
-   (Selektoren spezifischer als ".seq-cell… rect" für den Zellhintergrund) */
+/* Residue whose conformations are different amino acids: bar at the bottom edge of the cell
+   (selectors more specific than ".seq-cell… rect" for the cell background) */
 :root { --variant-color: #7048e8; }
 [data-bs-theme="dark"] { --variant-color: #b197fc; }
 .seq-cell rect.seq-conf-mark { display: none; fill: var(--variant-color); }
 .seq-cell.variant rect.seq-conf-mark { display: inline; }
 .seq-cell.selected rect.seq-conf-mark { fill: #fff; }
 
-/* Kettenlücke (fehlende Peptidbindung) zwischen zwei Zellen */
+/* Chain gap (missing peptide bond) between two cells */
 .seq-break line { stroke: var(--bs-danger); stroke-width: 2.5; stroke-linecap: round; }
 .seq-break-hit { fill: transparent; }
 
 .residue-label.selected .residue-label-text { fill: var(--bs-primary); font-weight: 700; }
 
-/* ===== Toolbar ===== */
+/* ===== Toolbar (icon buttons; bond colour and layout options of the graph tab) ===== */
 .toolbar-icon-btn {
     display: inline-flex;
     align-items: center;
@@ -524,7 +543,7 @@ input[type="file"] {
     padding: 0 4px;
 }
 
-/* Auf dem dunklen Hintergrund des aktiven Buttons bleibt die Vorschau so lesbar. */
+/* Keeps the preview readable on the dark background of the active button. */
 .style-option.active .layout-preview,
 .style-option.active .style-preview-mono {
     background: rgba(255, 255, 255, 0.2);
@@ -542,7 +561,8 @@ input[type="file"] {
     background: #ffffff;
 }
 
-/* ===== SVG styles (injected via JS, these are fallbacks) ===== */
+/* ===== SVG elements of the protein graph (classes set by graph.js) =====
+   Data-dependent colours (bond stroke, atom fill) are set as attributes by graph.js. */
 .residue-separator { stroke: var(--bs-border-color); stroke-width: 1.5; }
 
 .residue-label-text {
@@ -550,10 +570,6 @@ input[type="file"] {
     font-size: 11px;
     fill: var(--band-label-color);
 }
-
-.bond-backbone { stroke: var(--bond-backbone-color); stroke-width: 2.5; }
-.bond-sidechain { stroke: var(--bond-sidechain-color); stroke-width: 1.8; stroke-dasharray: 5,3; }
-.bond-peptide  { stroke: var(--bond-peptide-color); stroke-width: 2.5; }
 
 .bond-length-text {
     font-family: 'Roboto Mono', monospace;

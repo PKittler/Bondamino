@@ -1,5 +1,13 @@
 {% extends 'pdb_grapher/base.html' %}
 {% load i18n %}
+{% comment %}
+Edit the availability (personal and/or work groups) of a PDB file, rendered by views.edit
+(URL pdb/<pk>/edit/, uploader only).
+
+Context:
+    pdb: The PDBFile.
+    form: AvailabilityForm, rendered by _availability_fields.html.
+{% endcomment %}
 
 {% block title %}Bondamino – {% blocktranslate with name=pdb.name %}{{ name }} bearbeiten{% endblocktranslate %}{% endblock %}
 

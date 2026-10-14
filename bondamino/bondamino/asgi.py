@@ -1,10 +1,9 @@
-"""
-ASGI config for bondamino project.
+"""ASGI entry point of the Bondamino project.
 
-It exposes the ASGI callable as a module-level variable named ``application``.
+Exposes the ASGI callable as the module-level variable `application`. Bondamino is deployed
+via WSGI (see wsgi.py); this module is kept for ASGI servers such as uvicorn or daphne.
 
-For more information on this file, see
-https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/
+See https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/ for details.
 """
 
 import os

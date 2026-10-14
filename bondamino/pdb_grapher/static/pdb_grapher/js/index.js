@@ -1,6 +1,21 @@
+/**
+ * @fileoverview Behaviour of the start page (template
+ * `pdb_grapher/templates/pdb_grapher/index.html`, view `views.index`).
+ *
+ * Two independent parts, each in its own IIFE:
+ *   - Upload dialog (`#upload-modal`): file selection by button or drag & drop,
+ *     mutual exclusion of file and PDB ID, busy state while submitting, and
+ *     reopening the dialog after a failed upload (`data-show`).
+ *   - File list: row selection (mouse and keyboard) enabling the edit/delete
+ *     toolbar for files the user uploaded (`data-edit-url`, `data-delete-url`),
+ *     and instant client-side filtering by the search field.
+ *
+ * Globals: `bootstrap` (Bootstrap bundle) and `gettext`/`interpolate` (Django
+ * JavaScript catalog, loaded in base.html).
+ */
 'use strict';
 
-// ===== Upload-Dialog =====
+// ===== Upload dialog =====
 (function () {
     const modal = document.getElementById('upload-modal');
     const input = document.getElementById(modal.dataset.fileInput);
@@ -9,13 +24,17 @@
     const dropArea = document.getElementById('file-drop-area');
     const helpText = display.textContent;
 
+    /**
+     * Shows the chosen file name in the drop area and clears the PDB ID field.
+     * @param {string} name File name to display.
+     */
     function showFile(name) {
         display.textContent = name;
         dropArea.classList.add('has-file');
         pdbIdInput.value = '';
     }
 
-    // Datei und PDB-ID schließen sich aus: Die zuletzt gewählte Quelle gilt.
+    // File and PDB ID are mutually exclusive: the most recently chosen source wins.
     input.addEventListener('change', () => {
         if (input.files.length > 0) showFile(input.files[0].name);
     });
@@ -41,18 +60,18 @@
         }
     });
 
-    // Analyse bzw. Abruf bei RCSB kann einige Sekunden dauern.
+    // Analysis or download from RCSB can take a few seconds: disable the button, show a spinner.
     input.form.addEventListener('submit', () => {
         const submit = document.getElementById('upload-submit');
         submit.disabled = true;
         submit.querySelector('.spinner-border').hidden = false;
     });
 
-    // Fehlgeschlagener Upload: Dialog mit den Fehlermeldungen wieder öffnen.
+    // Failed upload: reopen the dialog showing the error messages.
     if ('show' in modal.dataset) bootstrap.Modal.getOrCreateInstance(modal).show();
 })();
 
-// ===== Dateiliste: Auswahl und Suche =====
+// ===== File list: selection and search =====
 (function () {
     const rows = Array.from(document.querySelectorAll('.file-row'));
     const editLink = document.getElementById('edit-selected');
@@ -62,8 +81,12 @@
     const empty = document.getElementById('file-empty');
     let selected = null;
 
-    // Bearbeiten und Löschen wirken nur auf die ausgewählte Zeile und nur,
-    // wenn der User die Datei hochgeladen hat.
+    /**
+     * Selects a row and updates the toolbar. Edit and delete act only on the
+     * selected row and only if the user uploaded the file (the row then carries
+     * `data-edit-url` and `data-delete-url`).
+     * @param {?HTMLTableRowElement} row Row to select, or null to clear the selection.
+     */
     function select(row) {
         if (selected) {
             selected.classList.remove('table-active');
@@ -82,7 +105,7 @@
         deleteButton.disabled = !deleteUrl;
         if (deleteUrl) {
             deleteForm.action = deleteUrl;
-            // Rückfrage übernimmt der data-confirm-Handler in base.html.
+            // The confirmation dialog is handled by the data-confirm handler in base.html.
             deleteForm.dataset.confirm = interpolate(gettext('„%s“ endgültig löschen?'), [row.dataset.fileName]);
         } else {
             deleteForm.removeAttribute('action');
@@ -104,7 +127,7 @@
         if (!selected || !selected.dataset.deleteUrl) e.preventDefault();
     });
 
-    // Suche filtert die Liste sofort; beim Absenden (Enter) bleibt sie in der URL erhalten.
+    // The search filters the list instantly; on submit (Enter) it is kept in the URL (GET q).
     search.addEventListener('input', () => {
         const term = search.value.trim().toLowerCase();
         let shown = 0;

@@ -1,20 +1,83 @@
+"""Scientific core of Bondamino: PDB parsing, bond graph, reference values and statistics.
+
+This module is pure Python (no Django imports) and turns a PDB file into the JSON-ready
+data the front-end draws as interactive graphs. All lengths are in Å, all angles in degrees.
+
+Typical flow (see views.py)::
+
+    info = parse_header(path)                           # method, resolution, R values
+    models = list_models(path)                          # [] if the file has no MODEL records
+    residues = parse_pdb(path, model_id=models[0] if models else None, altloc=None)
+    graph = build_graph(residues)                       # nodes, edges, residues (+ Ramachandran)
+    graph = build_average_graph(path, models)           # alternative: mean over all models
+    ensemble = build_bond_ensemble(path, models)        # per-bond mean/median, min/max bond
+
+Main entry points:
+    parse_header, list_models, list_altlocs: Cheap scans of a file for metadata.
+    parse_pdb: Reads ATOM/HETATM records of one model into `Residue` objects, choosing a
+        single alternate conformation per residue and deriving bonds of ligands and
+        modified amino acids (from CONECT records or covalent radii).
+    build_graph: Builds the graph dict for the front-end from `parse_pdb()` output.
+    build_average_graph: Same, with bond lengths and atom fields averaged over models.
+    build_bond_ensemble: Bond length statistics across all models.
+    evaluate_ramachandran, ramachandran_value, ramachandran_region: Top8000-based
+        Ramachandran scoring as in MolProbity.
+
+Graph dict produced by `build_graph()` / `build_average_graph()`::
+
+    {
+      'nodes': [{                      # one per atom, in file order
+          'id': 'A_52A_CA',            # see atom_id(); referenced by edges
+          'label': 'CA', 'residue': 'ALA', 'residue_seq': 52, 'chain': 'A',
+          'residue_index': 0,          # index into 'residues'
+          'element': 'C', 'hetatm': False,
+          'record', 'serial', 'alt_loc', 'i_code', 'x', 'y', 'z', 'occupancy',
+          'temp_factor', 'charge',     # raw ATOM/HETATM fields for the data table
+          'angle_refs': {'C|N': [mean, sigma, group], ...},   # optional, only for atoms
+      }, ...],                         # that are the centre of an angle with a reference
+      'edges': [{                      # one per bond
+          'source': node id, 'target': node id,
+          'length': 1.458,             # Å, rounded to 3 decimals
+          'type': 'backbone' | 'sidechain' | 'peptide' | 'disulfide' | 'ligand',
+          'ref': [mean, sigma, group] | None,   # reference value, see REFERENCE_SOURCES
+          'via': 'ssbond' | 'distance',          # only for disulfide bonds
+      }, ...],
+      'residues': [{                   # one per residue, in file order
+          'index', 'name', 'one_letter', 'parent', 'seq', 'i_code', 'pos', 'chain',
+          'conformations': {'A': 'PRO', 'B': 'SER'},
+          'rama': {'phi', 'psi', 'type', 'value', 'region'} | None,
+      }, ...],
+    }
+
+Reference values are lists `[mean, sigma, group]`, where `group` is a string such as
+'backbone:N-CA:GLY' or 'SER:CB-OG' that identifies which reference applied (used to group
+statistics). Backbone values follow Engh & Huber (2001), side-chain values the CCP4
+Monomer Library, Ramachandran regions the Top8000 data set; the data files and their
+licenses are described in reference_data/README.md.
+"""
 import gzip
 import json
 import math
 import statistics
 from pathlib import Path
 
+# Bonds within the backbone of every amino acid, as atom name pairs. OXT only exists at
+# the C terminus; pairs whose atoms are missing are skipped.
 BACKBONE_BONDS = [('N', 'CA'), ('CA', 'C'), ('C', 'O'), ('C', 'OXT')]
 
-# Längster C–N-Abstand (Å), der noch als Peptidbindung gilt (Soll ≈ 1,33 Å). Größere
-# Abstände zwischen aufeinanderfolgenden Residuen sind Kettenlücken, z. B. durch in der
-# Struktur fehlende Residuen, und keine Bindung.
+# Longest C–N distance (Å) still treated as a peptide bond (ideal ≈ 1.33 Å). Larger
+# distances between consecutive residues are chain breaks, e.g. caused by residues
+# missing from the model, not bonds.
 MAX_PEPTIDE_BOND_LENGTH = 2.0
 
-# Längster SG–SG-Abstand (Å), der ohne SSBOND-Eintrag als Disulfidbrücke gilt (typisch ≈ 2,0 Å).
-# Mit SSBOND-Eintrag gilt die Brücke unabhängig vom Abstand.
+# Longest SG–SG distance (Å) treated as a disulfide bond without an SSBOND record (typically
+# ≈ 2.0 Å). With an SSBOND record the bond is drawn regardless of its length.
 MAX_DISULFIDE_LENGTH = 2.5
 
+# Side-chain bonds (heavy atoms only, PDB atom names) of the 20 standard amino acids.
+# CA–CB is counted as side chain; for PRO the ring closure CD–N is included as well.
+# Modified amino acids get their side-chain bonds at parse time instead (Residue.sidechain_bonds).
+# Membership in this dict is also used throughout as the test "is a standard amino acid".
 SIDECHAIN_BONDS = {
     'ALA': [('CA', 'CB')],
     'ARG': [('CA', 'CB'), ('CB', 'CG'), ('CG', 'CD'), ('CD', 'NE'), ('NE', 'CZ'), ('CZ', 'NH1'), ('CZ', 'NH2')],
@@ -38,27 +101,31 @@ SIDECHAIN_BONDS = {
     'VAL': [('CA', 'CB'), ('CB', 'CG1'), ('CB', 'CG2')],
 }
 
-# Referenzwerte (Mittelwert, Standardabweichung) für Bindungslängen (Å) und Bindungswinkel (°).
-# Rückgrat: Engh & Huber (2001) mit den Zuordnungsregeln aus Dangle (Richardson-Labor,
-# BSD-3-Clause); Seitenketten: CCP4 Monomer Library (LGPL-3.0). Herkunft und Lizenzen
-# stehen in reference_data/README.md.
+# Reference values (mean, standard deviation) for bond lengths (Å) and bond angles (°).
+# Backbone: Engh & Huber (2001) with the assignment rules from Dangle (Richardson Lab,
+# BSD-3-Clause); side chains: CCP4 Monomer Library (LGPL-3.0). Provenance and licenses
+# are documented in reference_data/README.md. The citations below are shown in the UI.
 REFERENCE_SOURCES = {
     'backbone': 'Engh & Huber (2001), International Tables for Crystallography F, 382–392',
     'sidechain': 'CCP4 Monomer Library',
 }
 REFERENCE_DATA_DIR = Path(__file__).resolve().parent / 'reference_data'
+# Atom names that belong to the backbone; a bond or angle involving any other atom is
+# looked up in the side-chain references.
 BACKBONE_ATOMS = {'N', 'CA', 'C', 'O', 'OXT'}
 
-# Klassen: das Residuum selbst ('GLY', 'PRO'), über die Peptidbindung das folgende
-# ('X-GLY', 'X-PRO', 'cis-X-PRO' bei cis-Peptidbindung) oder das vorige ('GLY-X');
-# 'other' gilt sonst. Die erste passende Klasse in der Liste gilt (Vorrang wie in Dangle).
+# Backbone references per atom tuple: [(class, mean, sigma), ...]. Classes describe the
+# residue itself ('GLY', 'PRO'), across the peptide bond the following residue ('X-GLY',
+# 'X-PRO', 'cis-X-PRO' for a cis peptide bond) or the preceding one ('GLY-X'); 'other'
+# applies otherwise. The first class in the list that applies wins (precedence as in Dangle).
 BACKBONE_BOND_REFERENCES = {
     ('N', 'CA'): [('GLY', 1.456, 0.015), ('PRO', 1.468, 0.017), ('other', 1.459, 0.020)],
     ('CA', 'C'): [('GLY', 1.514, 0.016), ('PRO', 1.524, 0.020), ('other', 1.525, 0.026)],
     ('C', 'O'): [('GLY', 1.232, 0.016), ('PRO', 1.228, 0.020), ('other', 1.229, 0.019)],
     ('C', 'N'): [('X-GLY', 1.326, 0.018), ('X-PRO', 1.338, 0.019), ('other', 1.336, 0.023)],
 }
-# Atome in Reihenfolge vorheriges Residuum -> folgendes (C–N ist die Peptidbindung)
+# Angles as (end, centre, end). Angles across the peptide bond (C–N) list their atoms in
+# order preceding residue -> following residue; within a residue both orders are looked up.
 BACKBONE_ANGLE_REFERENCES = {
     ('N', 'CA', 'C'): [('GLY', 113.1, 2.5), ('PRO', 112.1, 2.6), ('other', 111.0, 2.7)],
     ('CA', 'C', 'O'): [('GLY', 120.6, 1.8), ('PRO', 120.2, 2.4), ('other', 120.1, 2.1)],
@@ -66,12 +133,21 @@ BACKBONE_ANGLE_REFERENCES = {
     ('O', 'C', 'N'): [('X-PRO', 121.1, 1.9), ('GLY-X', 123.2, 1.7), ('other', 122.7, 1.6)],
     ('C', 'N', 'CA'): [('cis-X-PRO', 127.0, 2.4), ('X-PRO', 119.3, 1.5), ('X-GLY', 122.3, 2.1), ('other', 121.7, 2.5)],
 }
-CIS_MAX_OMEGA = 30  # |ω| < 30°: cis-Peptidbindung (wie im Browser)
+CIS_MAX_OMEGA = 30  # |ω| < 30°: cis peptide bond (same threshold as in the browser).
 
 
 def _load_sidechain_references():
-    """Seitenketten-Referenzen je Aminosäure (eigener Residuenname, auch modifizierte):
-    Bindungen {(Residuum, {Atom, Atom}): [...]}, Winkel {(Residuum, Mitte, {Ende, Ende}): [...]}."""
+    """Loads the side-chain references from reference_data/ccp4_sidechains.json.
+
+    Keys use the residue's own name, so modified amino acids (e.g. MSE) have their own
+    entries. Atom pairs and angle end atoms are frozensets so that the lookup does not
+    depend on atom order.
+
+    Returns:
+        A tuple (bonds, angles) of dicts mapping to [mean, sigma, group]:
+        bonds {(res_name, frozenset({atom1, atom2})): ...} and
+        angles {(res_name, center_atom, frozenset({end1, end2})): ...}.
+    """
     data = json.loads((REFERENCE_DATA_DIR / 'ccp4_sidechains.json').read_text(encoding='utf-8'))['residues']
     bonds, angles = {}, {}
     for res, entry in data.items():
@@ -86,7 +162,17 @@ SIDECHAIN_BOND_REFERENCES, SIDECHAIN_ANGLE_REFERENCES = _load_sidechain_referenc
 
 
 def _classes(own=None, prev=None, next_=None, cis=False):
-    """Zutreffende Klassen (siehe BACKBONE_BOND_REFERENCES) für ein Residuum bzw. eine Peptidbindung."""
+    """Returns the reference classes (see BACKBONE_BOND_REFERENCES) that apply.
+
+    Args:
+        own: Amino acid of the residue itself (for bonds/angles within a residue).
+        prev: Amino acid before the peptide bond.
+        next_: Amino acid after the peptide bond.
+        cis: Whether the peptide bond is cis.
+
+    Returns:
+        A set of class names, always including 'other'.
+    """
     classes = {'other'}
     if own in ('GLY', 'PRO'):
         classes.add(own)
@@ -100,7 +186,13 @@ def _classes(own=None, prev=None, next_=None, cis=False):
 
 
 def _backbone_reference(table, atoms, classes):
-    """Erster passender Rückgrat-Referenzwert als [Mittelwert, Standardabweichung, Gruppe] oder None."""
+    """Returns the first matching backbone reference as [mean, sigma, group], or None.
+
+    Args:
+        table: BACKBONE_BOND_REFERENCES or BACKBONE_ANGLE_REFERENCES.
+        atoms: Atom name tuple in the order used as key in `table`.
+        classes: Applicable classes from `_classes()`.
+    """
     for cls, mean, sigma in table.get(atoms, []):
         if cls in classes:
             return [mean, sigma, f"backbone:{'-'.join(atoms)}:{cls}"]
@@ -108,9 +200,23 @@ def _backbone_reference(table, atoms, classes):
 
 
 def _reference(atom1, atom2, bond_type, res_name, res_class, next_class=None):
-    """Referenz einer Bindung als [Mittelwert, Standardabweichung, Gruppe] oder None.
-    `res_name` ist der Name des Residuums, `res_class` der seiner (Ausgangs-)Aminosäure,
-    `next_class` der des folgenden Residuums (nur für die Peptidbindung)."""
+    """Returns the reference value of a bond.
+
+    Side-chain bonds are looked up by the residue's own name (CCP4 has entries for the
+    supported modified amino acids); backbone and peptide bonds by the class of the
+    (parent) amino acid. Residues that are not amino acids get no reference.
+
+    Args:
+        atom1: Name of the first atom.
+        atom2: Name of the second atom.
+        bond_type: Edge type, e.g. 'backbone', 'sidechain' or 'peptide'.
+        res_name: Residue name as in the file (e.g. 'MSE').
+        res_class: Name of the residue's (parent) amino acid (e.g. 'MET' for MSE).
+        next_class: Class of the following residue; only used for the peptide bond.
+
+    Returns:
+        [mean, sigma, group] or None if no reference applies.
+    """
     if bond_type == 'peptide':
         if res_class not in SIDECHAIN_BONDS or next_class not in SIDECHAIN_BONDS:
             return None
@@ -118,22 +224,32 @@ def _reference(atom1, atom2, bond_type, res_name, res_class, next_class=None):
     if {atom1, atom2} - BACKBONE_ATOMS:
         return SIDECHAIN_BOND_REFERENCES.get((res_name, frozenset((atom1, atom2))))
     if res_class not in SIDECHAIN_BONDS:
-        return None  # keine Aminosäure oder modifizierte ohne bekannte Ausgangs-Aminosäure
+        return None  # Not an amino acid, or a modified one with unknown parent amino acid.
     atoms = (atom1, atom2) if (atom1, atom2) in BACKBONE_BOND_REFERENCES else (atom2, atom1)
     return _backbone_reference(BACKBONE_BOND_REFERENCES, atoms, _classes(own=res_class))
 
 
 def parse_header(file_path):
-    """Strukturmetadaten aus dem PDB-Header: Methode (EXPDTA), Auflösung (REMARK 2) und
-    R-Werte (REMARK 3). Fehlende Angaben sind None."""
+    """Reads structure metadata from the PDB header.
+
+    Reading stops at the first ATOM, HETATM or MODEL record.
+
+    Args:
+        file_path: Path of the PDB file.
+
+    Returns:
+        A dict with the keys 'id_code' (HEADER), 'method' (EXPDTA; several methods are
+        joined with '; '), 'resolution' (REMARK 2, Å), 'r_work' and 'r_free' (first values
+        found in REMARK 3). Missing values are None.
+    """
     info = {'id_code': None, 'method': None, 'resolution': None, 'r_work': None, 'r_free': None}
     with open(file_path, 'r') as f:
         for line in f:
             record = line[:6].strip()
             if record in ('ATOM', 'HETATM', 'MODEL'):
-                break  # Header ist zu Ende
+                break  # End of the header.
             if record == 'HEADER':
-                info['id_code'] = line[62:66].strip() or None
+                info['id_code'] = line[62:66].strip() or None  # Columns 63-66: PDB ID.
             elif record == 'EXPDTA':
                 method = line[10:].strip()
                 info['method'] = f"{info['method']}; {method}" if info['method'] else method
@@ -141,6 +257,7 @@ def parse_header(file_path):
                 value = line[22:].split()
                 info['resolution'] = _float_or_none(value[0]) if value else None
             elif line.startswith('REMARK   3') and ':' in line:
+                # "REMARK   3   R VALUE     (WORKING SET) : 0.190"; whitespace in labels varies.
                 label, _, value = line[10:].partition(':')
                 label = ' '.join(label.split())
                 if label in ('R VALUE (WORKING SET)', 'R VALUE (WORKING + TEST SET)') and info['r_work'] is None:
@@ -150,8 +267,9 @@ def parse_header(file_path):
     return info
 
 
-# Ausgangs-Aminosäure gängiger modifizierter Aminosäuren; gilt nur, wenn die Datei keine
-# MODRES-Einträge dazu hat (Dateien von RCSB bringen sie mit).
+# Parent amino acid of common modified amino acids; only used if the file has no MODRES
+# record for the residue (files from RCSB include them). Each of these also needs side-chain
+# references in ccp4_sidechains.json (see reference_data/build_ccp4_sidechains.py).
 MODIFIED_PARENTS = {
     'MSE': 'MET', 'FME': 'MET',
     'SEP': 'SER', 'TPO': 'THR', 'PTR': 'TYR',
@@ -161,21 +279,24 @@ MODIFIED_PARENTS = {
     'CGU': 'GLU', 'NEP': 'HIS',
 }
 
-# Kovalenzradien in Å (Cordero et al. 2008) für die Bindungserkennung über Abstände
+# Covalent radii in Å (Cordero et al. 2008) per element symbol (upper case), used to
+# detect bonds by distance when a residue has no CONECT records. 'CA' is calcium here,
+# not the C-alpha atom name.
 COVALENT_RADII = {
     'C': 0.76, 'N': 0.71, 'O': 0.66, 'S': 1.05, 'SE': 1.20, 'P': 1.07,
     'F': 0.57, 'CL': 1.02, 'BR': 1.20, 'I': 1.39, 'B': 0.84,
-    # Metalle in Liganden (z. B. Fe im Häm, Mg im Chlorophyll); Cordero et al. (2008)
+    # Metals in ligands (e.g. Fe in haem, Mg in chlorophyll); Cordero et al. (2008).
     'FE': 1.32, 'ZN': 1.22, 'MG': 1.41, 'CU': 1.32, 'MN': 1.39, 'CO': 1.26, 'NI': 1.24,
     'CA': 1.76, 'MO': 1.54, 'W': 1.62, 'V': 1.53,
 }
-# Wasser bekommt keine Bindungen (nur ein schweres Atom)
+# Water gets no bonds (only one heavy atom).
 WATER_NAMES = {'HOH', 'DOD', 'WAT', 'H2O'}
-DEFAULT_COVALENT_RADIUS = 0.80
-# Zwei Atome gelten als gebunden, wenn ihr Abstand höchstens die Summe der Radien plus
-# diese Toleranz beträgt (übliche Werte 0,4–0,45 Å)
+DEFAULT_COVALENT_RADIUS = 0.80  # Å, for elements missing from COVALENT_RADII.
+# Two atoms count as bonded if their distance is at most the sum of their radii plus this
+# tolerance in Å (common values are 0.4–0.45 Å).
 BOND_TOLERANCE = 0.45
 
+# One-letter codes of the standard amino acids (modified ones use their parent's code).
 THREE_TO_ONE = {
     'ALA': 'A', 'ARG': 'R', 'ASN': 'N', 'ASP': 'D', 'CYS': 'C',
     'GLN': 'Q', 'GLU': 'E', 'GLY': 'G', 'HIS': 'H', 'ILE': 'I',
@@ -185,6 +306,7 @@ THREE_TO_ONE = {
 
 
 def _float_or_none(text):
+    """Parses a float from a PDB field; returns None for empty or invalid text."""
     try:
         return float(text)
     except ValueError:
@@ -192,6 +314,7 @@ def _float_or_none(text):
 
 
 def _int_or_none(text):
+    """Parses an int from a PDB field; returns None for empty or invalid text."""
     try:
         return int(text)
     except ValueError:
@@ -199,10 +322,14 @@ def _int_or_none(text):
 
 
 def list_models(file_path):
-    """Gibt die im PDB-File vorkommenden MODEL-Nummern in Auftrittsreihenfolge zurück.
+    """Lists the MODEL numbers of a PDB file in order of appearance.
 
-    Enthält die Datei keine MODEL-Records, wird eine leere Liste zurückgegeben
-    (die Datei wird dann als einzelnes, implizites Modell behandelt).
+    Args:
+        file_path: Path of the PDB file.
+
+    Returns:
+        A list of model numbers. Empty if the file has no MODEL records; the file is then
+        treated as a single, implicit model (pass `model_id=None` to `parse_pdb()`).
     """
     models = []
     with open(file_path, 'r') as f:
@@ -210,29 +337,44 @@ def list_models(file_path):
             if line[:6].strip() != 'MODEL':
                 continue
             try:
-                model_num = int(line[10:14].strip())
+                model_num = int(line[10:14].strip())  # Columns 11-14: model serial number.
             except ValueError:
+                # Missing or invalid number: use the position of the model in the file.
                 model_num = len(models) + 1
             models.append(model_num)
     return models
 
 
 def list_altlocs(file_path):
-    """Gibt die in der Datei vorkommenden Kennungen alternativer Konformationen
-    (altLoc, z. B. ['A', 'B']) sortiert zurück; leer, wenn es keine gibt."""
+    """Lists the alternate location (altLoc) identifiers used in a PDB file.
+
+    Args:
+        file_path: Path of the PDB file.
+
+    Returns:
+        The sorted identifiers, e.g. ['A', 'B']; empty if there are none.
+    """
     altlocs = set()
     with open(file_path, 'r') as f:
         for line in f:
+            # Column 17: altLoc indicator.
             if line[:6].strip() in ('ATOM', 'HETATM') and len(line) > 16 and line[16].strip():
                 altlocs.add(line[16])
     return sorted(altlocs)
 
 
 def _choose_altloc(atoms, preferred):
-    """Konformation eines Residuums: `preferred`, falls das Residuum sie hat, sonst die
-    mit der höchsten mittleren Belegung (bei Gleichstand die zuerst auftretende).
-    `atoms` sind (Atomname, altLoc, Residuenname, Atomdaten) in Dateireihenfolge.
-    Gibt '' zurück, wenn das Residuum keine Alternativen hat."""
+    """Chooses the alternate conformation to use for one residue.
+
+    Args:
+        atoms: Tuples (atom_name, alt_loc, res_name, atom_data) in file order.
+        preferred: altLoc requested by the user, or None.
+
+    Returns:
+        `preferred` if the residue has it, otherwise the altLoc with the highest mean
+        occupancy (on a tie the first one in the file); '' if the residue has no
+        alternate conformations.
+    """
     occupancies = {}
     for _, alt_loc, _, atom in atoms:
         if alt_loc:
@@ -241,18 +383,27 @@ def _choose_altloc(atoms, preferred):
         return ''
     if preferred in occupancies:
         return preferred
-    # max() liefert bei Gleichstand das erste Element, dict behält die Dateireihenfolge
+    # On a tie max() returns the first element, and the dict keeps file order.
     return max(occupancies, key=lambda a: statistics.fmean(occupancies[a]))
 
 
 class Residue(dict):
-    """Atome eines Residuums ({Atomname: Atomdaten}) mit Zusatzangaben:
+    """Atoms of one residue as {atom_name: atom_data}, with extra attributes.
 
-    `conformations` ordnet jeder Konformation des Residuums in der Datei ihren
-    Residuennamen zu, z. B. {"A": "PRO", "B": "SER"} (leer ohne Alternativen).
-    `parent` ist bei modifizierten Aminosäuren die Ausgangs-Aminosäure (z. B. "MET" für
-    MSE), `sidechain_bonds` deren Seitenketten-Bindungen als Atomnamen-Paare.
-    `ligand_bonds` sind bei Liganden die Bindungen zwischen ihren Atomen (sonst None).
+    `atom_data` is a dict with the keys 'x', 'y', 'z' (Å), 'element', 'record' ('ATOM' or
+    'HETATM'), 'serial', 'alt_loc', 'i_code', 'occupancy', 'temp_factor' and 'charge'.
+
+    Attributes:
+        conformations: Maps every alternate conformation of the residue in the file to its
+            residue name, e.g. {'A': 'PRO', 'B': 'SER'}; empty without alternatives.
+        parent: For modified amino acids the parent amino acid (e.g. 'MET' for MSE), or
+            None if it is unknown or the residue is a standard amino acid or ligand.
+        sidechain_bonds: For modified amino acids their side-chain bonds as atom name
+            pairs (all non-backbone bonds); empty otherwise.
+        ligand_bonds: For ligands the bonds between their atoms as atom name pairs
+            (empty for single-atom ions); None for amino acids and water.
+        ssbond_partners: Positions (chain, seq, icode) of the cysteines this residue
+            forms a disulfide bond with according to SSBOND records.
     """
 
     def __init__(self, *args, conformations=None, **kwargs):
@@ -261,15 +412,25 @@ class Residue(dict):
         self.parent = None
         self.ligand_bonds = None
         self.sidechain_bonds = []
-        # (chain, seq, icode) der Cysteine, mit denen laut SSBOND eine Disulfidbrücke besteht
+        # (chain, seq, icode) of the cysteines this residue is disulfide-bonded to per SSBOND.
         self.ssbond_partners = set()
 
 
 def _select_conformation(atoms, preferred):
-    """Atome eines Residuums in einer einzigen Konformation: alle ohne altLoc plus die der
-    gewählten Alternative. Liefert (Residuenname, {Atomname: Atomdaten}); der Name stammt
-    aus der gewählten Alternative, da er sich bei Mikroheterogenität (z. B. A = PRO,
-    B = SER an derselben Position) unterscheidet."""
+    """Reduces the atoms of one residue to a single conformation.
+
+    Keeps all atoms without altLoc plus those of the chosen alternative (see
+    `_choose_altloc()`); if an atom name occurs more than once, the first one wins.
+
+    Args:
+        atoms: Tuples (atom_name, alt_loc, res_name, atom_data) in file order.
+        preferred: altLoc requested by the user, or None.
+
+    Returns:
+        A tuple (res_name, residue) with a `Residue`. The name is taken from the chosen
+        alternative, because it differs in case of microheterogeneity (e.g. A = PRO,
+        B = SER at the same position).
+    """
     chosen = _choose_altloc(atoms, preferred)
     selected = [a for a in atoms if a[1] in ('', chosen)]
     res_name = next((a[2] for a in selected if chosen and a[1] == chosen), selected[0][2])
@@ -284,48 +445,63 @@ def _select_conformation(atoms, preferred):
 
 
 def parse_pdb(file_path, model_id=None, altloc=None):
-    """Liest Atome aus einer PDB-Datei.
+    """Reads the atoms of one model from a PDB file.
 
-    Wenn `model_id` angegeben ist, werden nur Atome des entsprechenden MODEL-Blocks
-    berücksichtigt. Enthält die Datei keine MODEL-Records, hat `model_id` keine
-    Auswirkung und alle ATOM/HETATM-Zeilen werden gelesen.
+    Residues are distinguished by chain, sequence number and insertion code (52 and 52A
+    are different residues). Exactly one conformation is used per residue: `altloc` if
+    the residue has it, otherwise the one with the highest occupancy. Besides ATOM/HETATM
+    the records MODRES (parent amino acids), SSBOND (disulfide bonds) and CONECT (bonds
+    within HETATM groups) are evaluated; residues that are neither standard amino acids
+    nor water get their bonds from CONECT or, failing that, from covalent radii.
 
-    Residuen werden über Chain, Sequenznummer und Insertion-Code unterschieden (52 und
-    52A sind verschiedene Residuen). Je Residuum wird genau eine Konformation verwendet:
-    `altloc`, falls das Residuum sie hat, sonst die mit der höchsten Belegung.
+    Args:
+        file_path: Path of the PDB file.
+        model_id: MODEL number to read. If given, only atoms inside that MODEL block are
+            read. Use None for files without MODEL records (otherwise no atoms are found).
+            With None in a multi-model file all models are read, and for each atom its
+            first occurrence (i.e. the first model) is kept.
+        altloc: Preferred alternate conformation (e.g. 'A'), or None.
 
-    Schlüssel des Ergebnisses: (chain_id, res_seq, i_code, res_name).
+    Returns:
+        A dict {(chain_id, res_seq, i_code, res_name): Residue} in file order.
     """
-    # (chain, seq, icode) -> [(Atomname, altLoc, Residuenname, Atomdaten)] in Dateireihenfolge
+    # (chain, seq, icode) -> [(atom_name, alt_loc, res_name, atom_data)] in file order
     groups = {}
-    modres = {}   # Residuenname -> Ausgangs-Aminosäure (MODRES)
-    ssbonds = []  # Paare ((chain, seq, icode), (chain, seq, icode)) aus SSBOND
-    conect = []   # Atomnummern-Paare aus CONECT
-    serials = {}  # Atomnummer -> ((chain, seq, icode), Residuenname, Atomname), erstes Vorkommen
+    modres = {}   # Residue name -> parent amino acid (MODRES).
+    ssbonds = []  # Pairs ((chain, seq, icode), (chain, seq, icode)) from SSBOND.
+    conect = []   # Pairs of atom serial numbers from CONECT.
+    serials = {}  # Atom serial -> ((chain, seq, icode), res_name, atom_name), first occurrence.
     current_model = None
+    model_count = 0  # MODEL records seen so far, for models without a readable number.
     with open(file_path, 'r') as f:
         for line in f:
             record = line[:6].strip()
             if record == 'MODRES':
+                # Columns 13-15: residue name, 25-27: standard (parent) residue name.
                 modres.setdefault(line[12:15].strip(), line[24:27].strip())
                 continue
             if record == 'SSBOND':
-                # Brücken zu Symmetrie-Kopien (Symmetrie-Operator ≠ 1555) liegen nicht in der Datei
+                # Columns 16/30: chain IDs, 18-21/32-35: residue numbers, 22/36: insertion
+                # codes, 60-65/67-72: symmetry operators. Bonds to symmetry copies
+                # (operator other than 1555) involve atoms that are not in the file.
                 sym1, sym2 = line[59:65].strip(), line[66:72].strip()
                 seq1, seq2 = _int_or_none(line[17:21]), _int_or_none(line[31:35])
                 if seq1 is not None and seq2 is not None and sym1 in ('', '1555') and sym2 in ('', '1555'):
                     ssbonds.append(((line[15], seq1, line[21].strip()), (line[29], seq2, line[35].strip())))
                 continue
             if record == 'CONECT':
+                # Columns 7-11: atom serial, 12-31: up to four bonded atom serials.
                 numbers = [_int_or_none(line[i:i + 5]) for i in range(6, 31, 5)]
                 if numbers[0] is not None:
                     conect.extend((numbers[0], n) for n in numbers[1:] if n is not None)
                 continue
             if record == 'MODEL':
+                model_count += 1
                 try:
                     current_model = int(line[10:14].strip())
                 except ValueError:
-                    current_model = (current_model or 0) + 1
+                    # Same fallback as list_models(): the position of the model in the file.
+                    current_model = model_count
                 continue
             if record == 'ENDMDL':
                 current_model = None
@@ -333,7 +509,10 @@ def parse_pdb(file_path, model_id=None, altloc=None):
             if record not in ('ATOM', 'HETATM'):
                 continue
             if len(line) < 54:
-                continue
+                continue  # Too short to contain coordinates.
+            # Fixed PDB columns (1-based): 13-16 atom name, 17 altLoc, 18-20 residue name,
+            # 22 chain, 23-26 residue number, 27 insertion code, 31-54 x/y/z (Å),
+            # 55-60 occupancy, 61-66 B factor, 77-78 element, 79-80 charge.
             try:
                 atom_name = line[12:16].strip()
                 alt_loc = line[16]
@@ -348,12 +527,14 @@ def parse_pdb(file_path, model_id=None, altloc=None):
 
             alt_loc = alt_loc.strip()
             i_code = line[26].strip() if len(line) > 26 else ''
-            # CONECT bezieht sich auf die Atomnummern des ersten Models
+            # CONECT refers to the atom serial numbers of the first model, so record them
+            # before filtering by model.
             serials.setdefault(_int_or_none(line[6:11]), ((chain_id, res_seq, i_code), res_name, atom_name))
             if model_id is not None and current_model != model_id:
                 continue
             element = line[76:78].strip() if len(line) > 76 else ''
             if not element:
+                # No element column (older files): guess from the first letter of the atom name.
                 element = ''.join(c for c in atom_name if c.isalpha())[:1]
             groups.setdefault((chain_id, res_seq, i_code), []).append((atom_name, alt_loc, res_name, {
                 'x': x, 'y': y, 'z': z,
@@ -369,9 +550,9 @@ def parse_pdb(file_path, model_id=None, altloc=None):
 
     residues = {}
     for (chain_id, res_seq, i_code), atoms in groups.items():
-        # Verschiedene Residuennamen ohne altLoc sind keine Mikroheterogenität, sondern eine
-        # doppelt vergebene Nummer (z. B. Ligand mit der Nummer eines Protein-Residuums):
-        # dann jeden Namen als eigenes Residuum behandeln.
+        # Different residue names without altLoc are not microheterogeneity but a number
+        # used twice (e.g. a ligand with the number of a protein residue): treat each name
+        # as a residue of its own.
         if len({a[2] for a in atoms if not a[1]}) > 1:
             parts = {}
             for atom in atoms:
@@ -383,6 +564,7 @@ def parse_pdb(file_path, model_id=None, altloc=None):
             res_name, residue = _select_conformation(part, altloc)
             residues[(chain_id, res_seq, i_code, res_name)] = residue
 
+    # Attach SSBOND partners to both residues (all residues at that position).
     by_position = {}
     for key, residue in residues.items():
         by_position.setdefault(key[:3], []).append(residue)
@@ -392,6 +574,7 @@ def parse_pdb(file_path, model_id=None, altloc=None):
         for residue in by_position.get(b, []):
             residue.ssbond_partners.add(a)
 
+    # Bonds of everything that is neither a standard amino acid nor water (hydrogens ignored).
     topology = _conect_topology(conect, serials)
     for (_, _, _, res_name), residue in residues.items():
         if res_name in SIDECHAIN_BONDS or res_name in WATER_NAMES:
@@ -402,32 +585,54 @@ def parse_pdb(file_path, model_id=None, altloc=None):
         else:
             bonds = _bonds_by_distance(residue, heavy)
         if {'N', 'CA', 'C'} <= residue.keys():
-            # Modifizierte Aminosäure: Rückgrat wie üblich, der Rest ist ihre Seitenkette
+            # Modified amino acid: backbone as usual, everything else is its side chain.
             residue.parent = modres.get(res_name) or MODIFIED_PARENTS.get(res_name)
             backbone = {frozenset(pair) for pair in BACKBONE_BONDS}
             residue.sidechain_bonds = [pair for pair in bonds if frozenset(pair) not in backbone]
         else:
-            residue.ligand_bonds = bonds  # Ligand (Ionen haben nur ein Atom und damit keine)
+            residue.ligand_bonds = bonds  # Ligand (ions have only one atom and thus no bonds).
     return residues
 
 
 def _conect_topology(conect, serials):
-    """Bindungen innerhalb von Residuen aus den CONECT-Einträgen, je Residuenname als
-    Atomnamen-Paare (in Reihenfolge der Atome in der Datei). Dateien von RCSB enthalten
-    sie für alle HETATM-Gruppen, also auch für modifizierte Aminosäuren."""
+    """Derives intra-residue bonds from CONECT records.
+
+    Files from RCSB contain CONECT records for all HETATM groups, i.e. also for modified
+    amino acids. Bonds between different residues (e.g. to metal ions) are ignored. The
+    topology is collected per residue name, so all residues of the same name share it.
+
+    Args:
+        conect: Pairs of atom serial numbers from CONECT records.
+        serials: Atom serial -> ((chain, seq, icode), res_name, atom_name).
+
+    Returns:
+        A dict {res_name: [(atom_name, atom_name), ...]}, without duplicates and in order
+        of first appearance in the CONECT records.
+    """
     topology = {}
     for a, b in conect:
         if a >= b or a not in serials or b not in serials:
-            continue  # jede Bindung steht in beiden Richtungen in CONECT
+            continue  # Every bond appears in both directions in CONECT; keep one.
         (res_a, name_a, atom_a), (res_b, name_b, atom_b) = serials[a], serials[b]
         if res_a == res_b and name_a == name_b:
             pairs = topology.setdefault(name_a, {})
-            pairs.setdefault((atom_a, atom_b), None)
+            pairs.setdefault((atom_a, atom_b), None)  # dict as an insertion-ordered set
     return {name: list(pairs) for name, pairs in topology.items()}
 
 
 def _bonds_by_distance(residue, names):
-    """Bindungen zwischen den Atomen `names` eines Residuums über Kovalenzradien."""
+    """Detects bonds between atoms of a residue by distance.
+
+    Two atoms are bonded if their distance is at most the sum of their covalent radii
+    plus BOND_TOLERANCE.
+
+    Args:
+        residue: The `Residue`.
+        names: Names of the atoms to consider (normally the heavy atoms).
+
+    Returns:
+        A list of bonded atom name pairs.
+    """
     def radius(name):
         return COVALENT_RADII.get(residue[name]['element'].upper(), DEFAULT_COVALENT_RADIUS)
 
@@ -440,16 +645,21 @@ def _bonds_by_distance(residue, names):
 
 
 def residue_pos(res_seq, i_code):
-    """Position eines Residuums wie in der PDB-Datei, z. B. "52" oder "52A"."""
+    """Returns the residue position as written in the PDB file, e.g. "52" or "52A"."""
     return f'{res_seq}{i_code}'
 
 
 def atom_id(chain_id, res_seq, i_code, atom_name):
-    """Eindeutige Atom-ID, z. B. "A_52A_CA" (genutzt als Knoten-ID im Graphen)."""
+    """Returns the unique atom ID, e.g. "A_52A_CA", used as node ID in the graph.
+
+    The residue name is not part of the ID; `evaluate_ramachandran()` rebuilds IDs
+    from chain, position and atom name.
+    """
     return f'{chain_id}_{residue_pos(res_seq, i_code)}_{atom_name}'
 
 
 def _distance(a1, a2):
+    """Returns the Euclidean distance in Å between two atom data dicts."""
     return math.sqrt(
         (a1['x'] - a2['x']) ** 2 +
         (a1['y'] - a2['y']) ** 2 +
@@ -458,9 +668,19 @@ def _distance(a1, a2):
 
 
 def _disulfide_bonds(residues):
-    """Disulfidbrücken als (source_id, target_id, ungerundete Länge, Herkunft) mit Herkunft
-    "ssbond" (SSBOND-Eintrag) oder "distance" (SG–SG ≤ MAX_DISULFIDE_LENGTH). Beteiligt sind
-    Cysteine und davon abgeleitete modifizierte Aminosäuren mit einem SG-Atom."""
+    """Finds the disulfide bonds between cysteines.
+
+    Candidates are cysteines and modified amino acids derived from cysteine that have an
+    SG atom. A pair is bonded if an SSBOND record says so or, failing that, if the SG–SG
+    distance is at most MAX_DISULFIDE_LENGTH.
+
+    Args:
+        residues: Output of `parse_pdb()`.
+
+    Returns:
+        A list of (source_id, target_id, unrounded length in Å, origin) sorted by residue
+        order, where origin is 'ssbond' (SSBOND record) or 'distance'.
+    """
     cysteines = [
         (key, residue) for key, residue in residues.items()
         if 'SG' in residue and (key[3] == 'CYS' or getattr(residue, 'parent', None) == 'CYS')
@@ -484,12 +704,25 @@ def _disulfide_bonds(residues):
 
 
 def _residue_class(residues, key):
-    """Name der Aminosäure für Referenzwerte: der eigene oder bei modifizierten die Ausgangs-Aminosäure."""
+    """Returns the amino acid name used for references: the parent for modified residues, else its own."""
     return getattr(residues[key], 'parent', None) or key[3]
 
 
 def _iter_bonds(residues):
-    """Liefert alle Bindungen als (source_id, target_id, typ, ungerundete Länge, Referenz)."""
+    """Yields all bonds of a structure.
+
+    Within each residue: backbone and side-chain bonds of amino acids, or the own bonds
+    of ligands. Between consecutive residues of the same chain: the peptide bond C–N if
+    it is not longer than MAX_PEPTIDE_BOND_LENGTH. Finally all disulfide bonds.
+
+    Args:
+        residues: Output of `parse_pdb()`, in file order.
+
+    Yields:
+        Tuples (source_id, target_id, type, unrounded length in Å, reference), where type
+        is 'backbone', 'sidechain', 'ligand', 'peptide' or 'disulfide' and reference is
+        [mean, sigma, group] or None.
+    """
     ordered_keys = list(residues.keys())
     for i, key in enumerate(ordered_keys):
         chain_id, res_seq, i_code, res_name = key
@@ -497,7 +730,7 @@ def _iter_bonds(residues):
         res_class = _residue_class(residues, key)
 
         sidechain = SIDECHAIN_BONDS.get(res_name) or getattr(atoms, 'sidechain_bonds', [])
-        # Liganden nur mit ihren eigenen Bindungen (Atome wie C und O sind dort kein Rückgrat)
+        # Ligands only get their own bonds (atoms named e.g. C and O are not backbone there).
         ligand = getattr(atoms, 'ligand_bonds', None)
         groups = [('ligand', ligand)] if ligand is not None else [('backbone', BACKBONE_BONDS), ('sidechain', sidechain)]
         for bond_type, bonds in groups:
@@ -507,6 +740,7 @@ def _iter_bonds(residues):
                            bond_type, _distance(atoms[a1n], atoms[a2n]),
                            _reference(a1n, a2n, bond_type, res_name, res_class))
 
+        # Peptide bond to the next residue in file order if it is in the same chain.
         if i + 1 < len(ordered_keys):
             next_key = ordered_keys[i + 1]
             next_chain, next_seq, next_i_code, _ = next_key
@@ -522,20 +756,41 @@ def _iter_bonds(residues):
 
 
 def _dihedral(p0, p1, p2, p3):
-    """Torsionswinkel p0–p1–p2–p3 in Grad (−180 … 180, IUPAC-Konvention wie im Browser)."""
+    """Returns the torsion angle p0–p1–p2–p3 in degrees.
+
+    Range −180 … 180, sign per IUPAC convention (clockwise positive), same as in the browser.
+
+    Args:
+        p0: Atom data dict (with 'x', 'y', 'z'); likewise p1, p2, p3.
+    """
     sub = lambda a, b: [a['x'] - b['x'], a['y'] - b['y'], a['z'] - b['z']]  # noqa: E731
     cross = lambda u, v: [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]  # noqa: E731
     dot = lambda u, v: sum(a * b for a, b in zip(u, v))  # noqa: E731
     b0, b1, b2 = sub(p1, p0), sub(p2, p1), sub(p3, p2)
     n1, n2 = cross(b0, b1), cross(b1, b2)
     m = cross(n1, [c / math.sqrt(dot(b1, b1)) for c in b1])
+    # atan2 of the normals n1, n2 in the frame (n1, m); negated to get the IUPAC sign.
     return -math.degrees(math.atan2(dot(m, n2), dot(n1, n2)))
 
 
 def _angle_reference(residues, keys, ends, center):
-    """Referenz des Bindungswinkels ends[0]–center–ends[1] oder None. Atome sind
-    (Residuum-Index, Atomname); `keys` sind die Residuen-Schlüssel in Dateireihenfolge."""
-    (ia, a), (ic, c) = sorted(ends)  # Atom im früheren Residuum zuerst
+    """Returns the reference of the bond angle ends[0]–center–ends[1].
+
+    Angles within one residue use the side-chain references if a non-backbone atom is
+    involved, else the backbone references. Angles across the peptide bond use the
+    backbone references with the classes of both residues and the cis/trans state of
+    the peptide bond (ω = CA–C–N–CA).
+
+    Args:
+        residues: Output of `parse_pdb()`.
+        keys: The residue keys of `residues` in file order.
+        ends: The two end atoms as (residue index, atom name).
+        center: The centre atom as (residue index, atom name).
+
+    Returns:
+        [mean, sigma, group] or None if no reference applies.
+    """
+    (ia, a), (ic, c) = sorted(ends)  # Atom in the earlier residue first.
     i_center, name = center
     if ia == ic == i_center:
         key = keys[i_center]
@@ -546,7 +801,7 @@ def _angle_reference(residues, keys, ends, center):
             return None
         atoms = (a, name, c) if (a, name, c) in BACKBONE_ANGLE_REFERENCES else (c, name, a)
         return _backbone_reference(BACKBONE_ANGLE_REFERENCES, atoms, _classes(own=res_class))
-    # Über die Peptidbindung: CA–C–N und O–C–N (Mitte C) oder C–N–CA (Mitte N)
+    # Across the peptide bond: CA–C–N and O–C–N (centre C) or C–N–CA (centre N).
     prev_key, next_key = keys[ia], keys[ic]
     prev_class, next_class = _residue_class(residues, prev_key), _residue_class(residues, next_key)
     if prev_class not in SIDECHAIN_BONDS or next_class not in SIDECHAIN_BONDS:
@@ -559,8 +814,20 @@ def _angle_reference(residues, keys, ends, center):
 
 
 def _angle_references(residues, bonds):
-    """Referenzen der Bindungswinkel je Atom in der Mitte: {Atom-ID: {"Ende|Ende": Referenz}}
-    mit den alphabetisch sortierten Namen der Endatome. Ohne Disulfidbrücken."""
+    """Collects the bond angle references for every centre atom.
+
+    Every pair of bonded neighbours of an atom forms an angle. Disulfide bonds are not
+    considered.
+
+    Args:
+        residues: Output of `parse_pdb()`.
+        bonds: Bonds as yielded by `_iter_bonds()`.
+
+    Returns:
+        A dict {centre atom ID: {"end|end": [mean, sigma, group]}}, where "end|end" are
+        the alphabetically sorted names of the two end atoms. Angles without reference
+        are left out.
+    """
     keys = list(residues.keys())
     where = {
         atom_id(*key[:3], name): (i, name)
@@ -582,32 +849,48 @@ def _angle_references(residues, bonds):
     return references
 
 
-# Ramachandran-Bewertung wie MolProbity (cctbx mmtbx/validation/ramalyze.py) mit den
-# Top8000-Rastern des Richardson-Labors (CC BY 4.0, siehe reference_data/README.md).
+# Ramachandran scoring as in MolProbity (cctbx mmtbx/validation/ramalyze.py) with the
+# Top8000 grids of the Richardson Lab (CC BY 4.0, see reference_data/README.md).
 RAMACHANDRAN_SOURCE = 'Top8000 (Richardson Lab, Duke University), Williams et al. (2018), Protein Science 27, 293–315'
+# Region thresholds on the interpolated grid value: favored from 2 %, allowed from the
+# per-category value, outlier below. Must match reference_data/build_top8000_rama.py.
 RAMA_FAVORED = 0.02
 RAMA_ALLOWED = {'general': 0.0005, 'glycine': 0.001, 'cis-proline': 0.002, 'trans-proline': 0.001,
                 'pre-proline': 0.001, 'ile-val': 0.001}
-RAMA_CIS_MAX_OMEGA = 90  # Prolin gilt bis |ω| < 90° als cis (verdrehte Peptide zur näheren Form)
-RAMA_BINS, RAMA_BIN_WIDTH = 180, 2.0
-_rama_grids = None
+RAMA_CIS_MAX_OMEGA = 90  # Proline counts as cis up to |ω| < 90° (twisted peptides go to the nearer form).
+RAMA_BINS, RAMA_BIN_WIDTH = 180, 2.0  # Grid size per axis and bin width in degrees.
+_rama_grids = None  # Cache {category: flat grid}, loaded lazily by _rama_grid().
 
 
 def _rama_grid(rama_type):
-    """Rasterwerte einer Kategorie (180 × 180, φ außen), beim ersten Gebrauch geladen."""
+    """Returns the grid values of a category (180 × 180, φ-major), loaded on first use."""
     global _rama_grids
     if _rama_grids is None:
         with gzip.open(REFERENCE_DATA_DIR / 'top8000_rama.json.gz', 'rt', encoding='utf-8') as f:
+            # Stored as integers in millionths.
             _rama_grids = {name: [v / 1e6 for v in values] for name, values in json.load(f)['grids'].items()}
     return _rama_grids[rama_type]
 
 
 def ramachandran_value(rama_type, phi, psi):
-    """Wert der Top8000-Verteilung bei (φ, ψ): lineare Interpolation zwischen den vier
-    nächsten Rastermitten, über ±180° hinweg fortgesetzt (wie NDimTable.valueAt)."""
+    """Returns the value of the Top8000 distribution at (φ, ψ).
+
+    Bilinear interpolation between the four nearest bin centres, wrapping around at
+    ±180° (as NDimTable.valueAt in MolProbity).
+
+    Args:
+        rama_type: Category, one of the keys of RAMA_ALLOWED.
+        phi: φ in degrees (−180 … 180).
+        psi: ψ in degrees (−180 … 180).
+
+    Returns:
+        The interpolated density value (a fraction, compared with RAMA_FAVORED/RAMA_ALLOWED).
+    """
     grid = _rama_grid(rama_type)
     home, neighbor, contrib = [], [], []
     for angle in (phi, psi):
+        # Bin containing the angle, the neighbouring bin towards the angle, and the
+        # fractional distance from the home bin centre (0 … 0.5).
         i = min(int((angle + 180) // RAMA_BIN_WIDTH), RAMA_BINS - 1)
         center = -180 + (i + 0.5) * RAMA_BIN_WIDTH
         home.append(i)
@@ -624,21 +907,44 @@ def ramachandran_value(rama_type, phi, psi):
 
 
 def ramachandran_region(rama_type, value):
+    """Classifies a Ramachandran value.
+
+    Args:
+        rama_type: Category, one of the keys of RAMA_ALLOWED.
+        value: Value from `ramachandran_value()`.
+
+    Returns:
+        'favored', 'allowed' or 'outlier'.
+    """
     if value >= RAMA_FAVORED:
         return 'favored'
     return 'allowed' if value >= RAMA_ALLOWED[rama_type] else 'outlier'
 
 
 def evaluate_ramachandran(graph):
-    """Setzt bei jedem Residuum `rama`: φ, ψ, Kategorie, Wert und Bereich (favored, allowed,
-    outlier) oder None, wenn φ oder ψ fehlt (Kettenende, Kettenlücke, fehlende Atome).
-    Rechnet mit den Knoten des Graphen, damit es auch für den Model-Durchschnitt gilt."""
+    """Adds Ramachandran data to every residue of a graph.
+
+    Works on the graph's nodes (not on `parse_pdb()` output), so that it also applies to
+    the averaged coordinates of `build_average_graph()`. φ and ψ require peptide bonds to
+    both neighbours. The category follows MolProbity: 'glycine', 'cis-proline' or
+    'trans-proline', 'pre-proline' (residue before a proline), 'ile-val' or 'general';
+    modified amino acids are categorised by their parent.
+
+    Args:
+        graph: Graph dict as built by `build_graph()`; modified in place.
+
+    Returns:
+        The same graph, where each residue has 'rama' set to {'phi', 'psi' (degrees,
+        1 decimal), 'type' (category), 'value', 'region' ('favored', 'allowed' or
+        'outlier')}, or None if φ or ψ is undefined (chain end, chain break, missing atoms).
+    """
     nodes = {n['id']: n for n in graph['nodes']}
     peptides = {(e['source'], e['target']) for e in graph['edges'] if e['type'] == 'peptide'}
     residues = graph['residues']
     atom = lambda res, name: nodes.get(f"{res['chain']}_{res['pos']}_{name}")  # noqa: E731
 
     def linked(a, b):
+        """Whether residue `a` is joined to residue `b` by a peptide bond C(a)–N(b)."""
         c, n = atom(a, 'C'), atom(b, 'N')
         return bool(c and n and (c['id'], n['id']) in peptides)
 
@@ -673,11 +979,20 @@ def evaluate_ramachandran(graph):
 
 
 def build_graph(residues):
+    """Builds the graph dict consumed by the front-end.
+
+    Args:
+        residues: Output of `parse_pdb()`.
+
+    Returns:
+        A dict with 'nodes' (atoms), 'edges' (bonds with lengths and reference values)
+        and 'residues' (incl. Ramachandran data); the exact shape is described in the
+        module docstring.
+    """
     nodes = []
-    # Reihenfolge, in der die Residuen in der PDB-Datei auftreten, beibehalten
-    # (nicht nach Chain/Sequenznummer neu sortieren) — HETATM-Einträge können
-    # eine Chain-ID wiederverwenden, obwohl sie physisch nach anderen Chains
-    # in der Datei stehen.
+    # Keep the order in which residues appear in the PDB file (do not re-sort by
+    # chain/sequence number): HETATM records may reuse a chain ID although they
+    # are located after other chains in the file.
     ordered_keys = list(residues.keys())
 
     for i, key in enumerate(ordered_keys):
@@ -694,7 +1009,7 @@ def build_graph(residues):
                 'residue_index': i,
                 'element': atom_data.get('element', ''),
                 'hetatm': atom_data.get('record') == 'HETATM',
-                # Rohdaten aus der ATOM/HETATM-Zeile (für die Datentabelle)
+                # Raw data from the ATOM/HETATM line (for the data table).
                 'record': atom_data.get('record'),
                 'serial': atom_data.get('serial'),
                 'alt_loc': atom_data.get('alt_loc', ''),
@@ -709,16 +1024,16 @@ def build_graph(residues):
 
     bonds = list(_iter_bonds(residues))
     edges = [
-        # ref: [Mittelwert, Standardabweichung, Gruppe] nach REFERENCE_SOURCES oder None
+        # ref: [mean, sigma, group] according to REFERENCE_SOURCES, or None.
         {'source': source, 'target': target, 'length': round(length, 3), 'type': bond_type, 'ref': ref}
         for source, target, bond_type, length, ref in bonds
     ]
-    # Referenzen der Bindungswinkel am Atom in der Mitte, siehe _angle_references
+    # Bond angle references at the centre atom, see _angle_references().
     angle_refs = _angle_references(residues, bonds)
     for node in nodes:
         if node['id'] in angle_refs:
             node['angle_refs'] = angle_refs[node['id']]
-    # Herkunft der Disulfidbrücken: "ssbond" oder "distance"
+    # Origin of the disulfide bonds: "ssbond" or "distance".
     origin = {(source, target): via for source, target, _, via in _disulfide_bonds(residues)}
     for edge in edges:
         if edge['type'] == 'disulfide':
@@ -729,40 +1044,51 @@ def build_graph(residues):
             'index': i,
             'name': res_name,
             'one_letter': THREE_TO_ONE.get(res_name) or THREE_TO_ONE.get(getattr(residues[key], 'parent', None), '?'),
-            # Ausgangs-Aminosäure, falls es eine modifizierte ist (z. B. "MET" für MSE)
+            # Parent amino acid if this is a modified one (e.g. "MET" for MSE).
             'parent': getattr(residues[key], 'parent', None),
             'seq': res_seq,
             'i_code': i_code,
-            # Position wie in der Datei ("52A"); Teil der Atom-IDs
+            # Position as in the file ("52A"); part of the atom IDs.
             'pos': residue_pos(res_seq, i_code),
             'chain': chain_id,
-            # Konformationen des Residuums in der Datei mit ihrer Aminosäure, z. B. {"A": "PRO", "B": "SER"}
+            # Conformations of the residue in the file with their residue name, e.g. {"A": "PRO", "B": "SER"}.
             'conformations': getattr(residues[key], 'conformations', {}),
         }
         for i, key in enumerate(ordered_keys)
-        for chain_id, res_seq, i_code, res_name in [key]
+        for chain_id, res_seq, i_code, res_name in [key]  # Unpacks the key within the comprehension.
     ]
 
     return evaluate_ramachandran({'nodes': nodes, 'edges': edges, 'residues': residue_list})
 
 
-# Über die Models gemittelte Atomfelder mit ihrer Anzahl Nachkommastellen (wie im PDB-Format)
+# Atom fields averaged over the models, with their number of decimals (as in the PDB format).
 AVERAGED_ATOM_FIELDS = {'x': 3, 'y': 3, 'z': 3, 'occupancy': 2, 'temp_factor': 2}
 
 
 def build_average_graph(file_path, models, altloc=None):
-    """Baut den Graphen eines Ensembles, dessen Bindungslängen der Mittelwert der
-    jeweiligen Bindung über alle angegebenen Models sind.
+    """Builds the graph of an ensemble whose bond lengths are averaged over the models.
 
-    Atome und Bindungen stammen aus dem ersten Model; gemittelt wird je Bindung über
-    alle Models, in denen beide Atome vorkommen. Gemittelt werden die ungerundeten
-    Abstände, gerundet wird erst das Ergebnis. Ebenso werden Koordinaten, Besetzung
-    und B-Faktor jedes Atoms über die Models gemittelt, in denen es vorkommt.
+    Atoms and bonds are taken from the first model; each bond is averaged over all
+    models in which both atoms occur (a peptide bond is skipped in models where it is a
+    chain break). The unrounded distances are averaged and only the result is rounded.
+    Likewise, coordinates, occupancy and B factor of each atom are averaged over the
+    models in which it occurs, and φ/ψ are computed from the averaged coordinates. Bond
+    angle references and residue data are those of the first model.
+
+    Args:
+        file_path: Path of the PDB file.
+        models: Model numbers from `list_models()`. If empty, the graph of the whole
+            file is returned unchanged.
+        altloc: Preferred alternate conformation, passed to `parse_pdb()`.
+
+    Returns:
+        A graph dict as returned by `build_graph()`.
     """
     if not models:
         return build_graph(parse_pdb(file_path, altloc=altloc))
 
     base = build_graph(parse_pdb(file_path, model_id=models[0], altloc=altloc))
+    # Running sums and counts per edge (same index as base['edges']) and per atom field.
     sums = [0.0] * len(base['edges'])
     counts = [0] * len(base['edges'])
     atom_sums = {node['id']: {f: [0.0, 0] for f in AVERAGED_ATOM_FIELDS} for node in base['nodes']}
@@ -777,7 +1103,7 @@ def build_average_graph(file_path, models, altloc=None):
             a1, a2 = atoms.get(edge['source']), atoms.get(edge['target'])
             if a1 and a2:
                 length = _distance(a1, a2)
-                # Wie in _iter_bonds: In diesem Model ist hier eine Kettenlücke, keine Bindung
+                # As in _iter_bonds(): in this model there is a chain break here, not a bond.
                 if edge['type'] == 'peptide' and length > MAX_PEPTIDE_BOND_LENGTH:
                     continue
                 sums[i] += length
@@ -798,12 +1124,17 @@ def build_average_graph(file_path, models, altloc=None):
         for field, (total, count) in atom_sums[node['id']].items():
             if count:
                 node[field] = round(total / count, AVERAGED_ATOM_FIELDS[field])
-    # φ/ψ aus den gemittelten Koordinaten
+    # Recompute φ/ψ from the averaged coordinates.
     return evaluate_ramachandran(base)
 
 
 def _bond_atom(residues, node_id):
-    """Angaben zu einem Atom einer Bindung (gleiche Schlüssel wie die Graph-Knoten)."""
+    """Returns details of a bond atom (same keys as the graph nodes), or None if not found.
+
+    Args:
+        residues: Output of `parse_pdb()`.
+        node_id: Atom ID as built by `atom_id()`.
+    """
     chain_id, pos, atom_name = node_id.split('_', 2)
     for (c, seq, i_code, res_name), atoms in residues.items():
         if c == chain_id and residue_pos(seq, i_code) == pos and atom_name in atoms:
@@ -816,12 +1147,30 @@ def _bond_atom(residues, node_id):
 
 
 def build_bond_ensemble(file_path, models, altloc=None):
-    """Bindungslängen über alle Models: Mittelwert und Median je Bindung sowie die
-    kürzeste und längste Bindung aller Models (inkl. beteiligter Atome und Model).
+    """Computes bond length statistics across all models.
 
-    Mittelwert und Median werden aus den ungerundeten Abständen berechnet, damit sie
-    mit dem Model "Durchschnitt" übereinstimmen. Dateien ohne MODEL-Records werden
-    als ein einzelnes Model behandelt.
+    Mean and median are computed from the unrounded distances so that they agree with
+    the "average" model (`build_average_graph()`). Files without MODEL records are
+    treated as a single model.
+
+    Args:
+        file_path: Path of the PDB file.
+        models: Model numbers from `list_models()` (may be empty).
+        altloc: Preferred alternate conformation, passed to `parse_pdb()`.
+
+    Returns:
+        A dict::
+
+            {
+              'models': models,
+              'bonds': {'source|target': [mean, median, number of models], ...},
+              'min': {'source', 'target', 'length', 'model', 'atoms': [atom, atom]} | None,
+              'max': same as 'min',
+            }
+
+        'min'/'max' are the shortest and longest bond over all models, where 'model' is
+        None for files without MODEL records and 'atoms' come from `_bond_atom()`.
+        Lengths are in Å, rounded to 3 decimals.
     """
     lengths = {}
     extremes = {'min': None, 'max': None}
@@ -839,6 +1188,7 @@ def build_bond_ensemble(file_path, models, altloc=None):
             if candidate and (extremes[kind] is None or better(candidate[2], extremes[kind]['_raw'])):
                 source, target, length = candidate
                 extremes[kind] = {
+                    # '_raw' keeps the unrounded length for comparisons; removed below.
                     'source': source, 'target': target, 'length': round(length, 3), '_raw': length,
                     'model': model_id,
                     'atoms': [_bond_atom(residues, source), _bond_atom(residues, target)],
@@ -849,7 +1199,7 @@ def build_bond_ensemble(file_path, models, altloc=None):
 
     return {
         'models': models,
-        # Bindung "source|target" -> [Mittelwert, Median, Anzahl Models]
+        # Bond "source|target" -> [mean, median, number of models containing the bond].
         'bonds': {
             key: [round(statistics.fmean(v), 3), round(statistics.median(v), 3), len(v)]
             for key, v in lengths.items()

@@ -1,3 +1,8 @@
+"""URL routes of the pdb_grapher app (namespace ``pdb_grapher``, included in ``bondamino/urls.py``).
+
+Login, logout, the JavaScript translation catalog and the admin are routed in the project's ``bondamino/urls.py``.
+Permissions (visibility, ownership, group leadership) are checked in the views, see ``views.py``.
+"""
 from django.urls import path
 from . import views
 

@@ -1,10 +1,10 @@
-"""
-WSGI config for bondamino project.
+"""WSGI entry point of the Bondamino project.
 
-It exposes the WSGI callable as a module-level variable named ``application``.
+Exposes the WSGI callable as the module-level variable `application`. This is what the
+production servers load: gunicorn in the Docker image (`bondamino.wsgi:application`, see
+docker/entrypoint.sh) and waitress on Windows (see README).
 
-For more information on this file, see
-https://docs.djangoproject.com/en/5.2/howto/deployment/wsgi/
+See https://docs.djangoproject.com/en/5.2/howto/deployment/wsgi/ for details.
 """
 
 import os

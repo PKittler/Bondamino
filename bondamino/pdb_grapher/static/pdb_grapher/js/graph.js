@@ -1,22 +1,99 @@
+/**
+ * @fileoverview Front-end of the Bondamino detail page (template
+ * `pdb_grapher/templates/pdb_grapher/graph.html`).
+ *
+ * The page shows one uploaded PDB structure in five Bootstrap tabs; this file
+ * drives the first four (the "notes" tab is handled by `notes.js`):
+ *
+ *   - `graph`        Interactive d3 graph: one horizontal band per residue,
+ *                    backbone N–CA–C vertically on the left, side chains as a
+ *                    tree (rings as polygons) to the right, ligands laid out from
+ *                    their 3D coordinates. Bonds are coloured by length, uniformly,
+ *                    by Z-score against reference values or by B-factor. Two
+ *                    layouts: `schematic` (fixed grid) and `proportional` (edge
+ *                    length proportional to the bond length in Å).
+ *   - `ramachandran` Ramachandran plot (φ/ψ), ω (cis/trans) and bond angles,
+ *                    each with reference statistics.
+ *   - `data`         Atom table (one row per ATOM/HETATM record).
+ *   - `stats`        Composition, bond statistics (reference Z-scores, peptide
+ *                    bonds, disulfides, extremes over all models, length
+ *                    histogram, bonds grouped by atom pair) and exports.
+ *
+ * A sequence bar (one-letter codes) above the graph and data tabs is linked to
+ * both views: clicking a cell jumps to the residue, scrolling highlights the
+ * residues currently in view.
+ *
+ * Data flow:
+ *   - `#graph-data` (JSON, built by `utils.build_graph`): `{residues, nodes,
+ *     edges}` of the initially selected model. Atom ids have the form
+ *     `<chain>_<pos>_<atom>`; edges carry `type` (backbone, sidechain, peptide,
+ *     disulfide, ligand), `length` (Å) and `ref` ([mean, sigma, group] or null);
+ *     residues may carry `rama` (φ/ψ and Top8000 evaluation from the server).
+ *   - `#bond-ensemble` (JSON, `utils.build_bond_ensemble`): per-bond mean/median
+ *     over all models plus the shortest and longest bond of all models.
+ *   - `#structure-info` (JSON): header metadata (method, resolution, R values)
+ *     and the names of the reference sources; read lazily via `structureInfo()`.
+ *   - `GET /pdb/<pk>/models/?model=&altloc=&ensemble=1` (URL in
+ *     `#structure-selects[data-model-url]`): returns `{graph, ensemble?}` when the
+ *     user picks another model or alternate conformation; everything is then
+ *     re-rendered from the new `graphData` (see `loadStructure` in the init block).
+ *   - Ramachandran regions are a static JSON file fetched on demand
+ *     (`#angles-export[data-rama-regions]`, see `loadRamaRegions`).
+ *
+ * Exports (stats and Ramachandran tabs): JSON and PDF are both generated from
+ * `buildStatsExport()`; the PDF uses jsPDF + jspdf-autotable, loaded lazily on
+ * the first PDF export (`loadScript`). CSV tables come from `csvTable()`, the
+ * histogram and Ramachandran plot can be saved as SVG/PNG/JPEG.
+ *
+ * Key state:
+ *   - `canvas` (from `setupCanvas`): d3 selections, the zoom behaviour and
+ *     `canvas.state` (active tab, selected residue, band bounds, pending jumps).
+ *   - `graphData`, `bondEnsemble`, `activeStyle`, `activeLayout` live in the
+ *     closure of the init IIFE at the end of the file; style and layout are
+ *     persisted in localStorage.
+ *   - Module-level: `ramaView`, `histogram` and the `expanded*` sets that keep
+ *     collapsible table rows open across re-renders (e.g. after a model change).
+ *
+ * All user-visible strings go through Django's JavaScript catalogue (`gettext`,
+ * `ngettext`, `interpolate`); the German source strings are the message ids and
+ * must not be changed here without updating the translations.
+ *
+ * File layout (sections marked with `// ===== ... =====`): constants, helpers,
+ * ring geometry, graph layout, rendering, B-factor colouring, sequence bar, data
+ * table, statistics, legend, reference values, angles/Ramachandran, bond
+ * statistics, histogram, JSON/PDF export, CSV export, initialisation.
+ */
 'use strict';
 
 // ===== Constants =====
+/** @const {number} Height of one residue band in the schematic layout (px). */
 const BAND_HEIGHT = 200;
+/** @const {number} Width reserved for the residue labels on the left (px). */
 const LABEL_W = 90;
+/** @const {number} x position of the backbone column (px). */
 const BACKBONE_X = LABEL_W + 80;
+/** @const {number} Horizontal step per side-chain tree level, schematic layout (px). */
 const SC_COL_W = 82;
+/** @const {number} Radius of an atom circle (px). */
 const NODE_R = 16;
+/** @const {number} Vertical space per leaf of the side-chain tree, schematic layout (px). */
 const LEAF_H = 46;
 const PROP_SCALE = 55; // px per Å in proportional layout
-const SC_RING_SIDE = 60; // Kantenlänge der Ringe im schematischen Layout (px)
+const SC_RING_SIDE = 60; // Edge length of rings (and ligand bonds) in the schematic layout (px)
+/** @const {number} Length of the separator line between two residue bands (px). */
 const RESIDUE_SEPARATOR_W = 100;
 
+/** @const {!Object<string, number>} y offsets of backbone atoms within a band (schematic layout). */
 const BB_Y = { N: 30, CA: 90, C: 150, O: 160 };
+/** @const {!Set<string>} Atom names that belong to the backbone. */
 const BACKBONE_ATOMS = new Set(['N', 'CA', 'C', 'O', 'OXT']);
 
-// Ringförmige Seitenketten: Atomnamen in Ringreihenfolge (letzter schließt zum ersten).
-// TRP hat zwei fusionierte Ringe, die sich die Kante CD2-CE2 teilen.
-// PRO's Ring bindet zurück in die Backbone-Atome N/CA.
+/**
+ * Ring-shaped side chains: atom names in ring order (the last one closes back to
+ * the first). TRP has two fused rings sharing the edge CD2–CE2. The PRO ring
+ * closes back into the backbone atoms N/CA.
+ * @const {!Object<string, !Array<!Array<string>>>}
+ */
 const SIDECHAIN_RINGS = {
     HIS: [['CG', 'ND1', 'CE1', 'NE2', 'CD2']],
     PHE: [['CG', 'CD1', 'CE1', 'CZ', 'CE2', 'CD2']],
@@ -26,26 +103,46 @@ const SIDECHAIN_RINGS = {
 };
 
 // ===== Helpers =====
-// Sprache der Seite (<html lang>) für Zahlen- und Datumsformate; Texte kommen aus dem
-// JavaScript-Katalog von Django (gettext, ngettext, interpolate).
+/**
+ * Page language (`<html lang>`) used for number and date formats; texts come from
+ * Django's JavaScript catalogue (gettext, ngettext, interpolate).
+ * @const {string}
+ */
 const LOCALE = document.documentElement.lang || 'de';
 
+/**
+ * Reads a CSS custom property from the document root (follows the light/dark theme).
+ * @param {string} name Property name including the leading `--`.
+ * @return {string} The trimmed value, or '' if undefined.
+ */
 function cssVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-// Farbe aus der CSS-Variable --atom-<Element>; Elemente ohne eigene Farbe erhalten --atom-default.
+/**
+ * Colour of a chemical element from the CSS variable `--atom-<ELEMENT>`; elements
+ * without their own colour fall back to `--atom-default`.
+ * @param {string} element Element symbol (any case).
+ * @return {string} A CSS colour value.
+ */
 function getElementColor(element) {
     return cssVar(`--atom-${(element || '').toUpperCase()}`) || cssVar('--atom-default');
 }
 
-// ===== Ring-Geometrie =====
-// Im Proportional-Layout mit echten Bindungslängen, im schematischen Layout als
-// regelmäßige Vielecke (`bondPx` liefert dann eine konstante Kantenlänge).
-// Berechnet die Eckpunkte eines geschlossenen Vielecks mit vorgegebenen Kantenlängen,
-// bei dem alle Ecken auf einem gemeinsamen Kreis liegen (zyklisches Polygon). So bekommt
-// jede Kante — inklusive der ringschließenden — exakt ihre echte, proportionale Länge,
-// ohne dass eine Kante gestreckt werden muss, um den Ring zu schließen.
+// ===== Ring geometry =====
+// Side-chain rings are drawn with their real bond lengths in the proportional
+// layout and as regular polygons in the schematic layout (`bondPx` then returns a
+// constant edge length).
+
+/**
+ * Computes the vertices of a closed polygon with the given edge lengths whose
+ * vertices all lie on a common circle (cyclic polygon). This way every edge,
+ * including the ring-closing one, gets exactly its real proportional length
+ * without stretching any edge to close the ring. The circumradius is found by
+ * bisection so that the central angles sum up to 2π.
+ * @param {!Array<number>} sides Edge lengths in ring order (px).
+ * @return {!Array<{x: number, y: number}>} Vertices around the origin.
+ */
 function layoutCyclicPolygon(sides) {
     const n = sides.length;
     const maxSide = Math.max(...sides);
@@ -69,12 +166,26 @@ function layoutCyclicPolygon(sides) {
     return pts;
 }
 
+/**
+ * Rotates a point around the origin.
+ * @param {{x: number, y: number}} p The point.
+ * @param {number} cosA Cosine of the rotation angle.
+ * @param {number} sinA Sine of the rotation angle.
+ * @return {{x: number, y: number}} The rotated point.
+ */
 function rotatePoint(p, cosA, sinA) {
     return { x: p.x * cosA - p.y * sinA, y: p.x * sinA + p.y * cosA };
 }
 
-// Hängt einen einzelnen Ring-Eckpunkt an eine bereits feste Weltposition, orientiert so,
-// dass der Ring von dort aus in Richtung `outDir` "aufgeht" (weg vom Backbone).
+/**
+ * Attaches a single ring vertex to an already fixed world position and orients the
+ * ring so that it "opens" from there in direction `outDir` (away from the backbone).
+ * @param {!Array<{x: number, y: number}>} localPts Ring vertices from layoutCyclicPolygon.
+ * @param {number} vertexIdx Index of the vertex to pin.
+ * @param {{x: number, y: number}} worldPos Target position of that vertex.
+ * @param {{x: number, y: number}} outDir Direction from the vertex to the ring centre.
+ * @return {!Array<{x: number, y: number}>} Ring vertices in world coordinates.
+ */
 function anchorRingSingle(localPts, vertexIdx, worldPos, outDir) {
     const p = localPts[vertexIdx];
     const localAngleToCenter = Math.atan2(-p.y, -p.x);
@@ -89,9 +200,19 @@ function anchorRingSingle(localPts, vertexIdx, worldPos, outDir) {
     });
 }
 
-// Hängt zwei benachbarte Ring-Eckpunkte an zwei bereits feste Weltpositionen
-// (z. B. Backbone N/CA bei PRO, oder die gemeinsame Kante zweier fusionierter Ringe bei TRP).
-// Da zwei Punkte den Ring nur bis auf Spiegelung festlegen, wählt `chooseMirror` die Seite.
+/**
+ * Attaches two adjacent ring vertices to two already fixed world positions (e.g.
+ * backbone N/CA for PRO, or the shared edge of two fused rings for TRP). Since two
+ * points fix the ring only up to a reflection, `chooseMirror` picks the side.
+ * @param {!Array<{x: number, y: number}>} localPts Ring vertices from layoutCyclicPolygon.
+ * @param {number} idxA Index of the first pinned vertex.
+ * @param {number} idxB Index of the second pinned vertex.
+ * @param {{x: number, y: number}} worldA Target position of vertex `idxA`.
+ * @param {{x: number, y: number}} worldB Target position of vertex `idxB`.
+ * @param {function(!Array, !Array): !Array} chooseMirror Receives the unmirrored
+ *     and the mirrored placement and returns the one to use.
+ * @return {!Array<{x: number, y: number}>} Ring vertices in world coordinates.
+ */
 function anchorRingDouble(localPts, idxA, idxB, worldA, worldB, chooseMirror) {
     function build(mirror) {
         const pts = mirror ? localPts.map(p => ({ x: p.x, y: -p.y })) : localPts;
@@ -110,10 +231,20 @@ function anchorRingDouble(localPts, idxA, idxB, worldA, worldB, chooseMirror) {
     return chooseMirror(build(false), build(true));
 }
 
-// Legt alle Ringe einer Seitenkette fest (in Reihenfolge, damit ein zweiter, fusionierter
-// Ring bereits platzierte Atome des ersten als Anker nutzen kann, siehe TRP).
+/**
+ * Places all rings of one side chain, in order, so that a second fused ring can use
+ * the already placed atoms of the first one as anchors (see TRP). A ring with two
+ * already positioned atoms is anchored on that edge; otherwise its first atom is
+ * placed to the right of its (tree-placed) neighbour outside the ring.
+ * @param {!Array<!Array<string>>} ringDefs Rings as atom names (see SIDECHAIN_RINGS).
+ * @param {!Object<string, {x: number, y: number}>} positions Atom id -> position;
+ *     updated in place.
+ * @param {!Object<string, !Array<string>>} scAdj Side-chain adjacency by atom id.
+ * @param {function(string, string): number} bondPx Edge length between two atom ids (px).
+ * @param {function(string): string} pfx Maps an atom name to the residue's atom id.
+ */
 function layoutSidechainRings(ringDefs, positions, scAdj, bondPx, pfx) {
-    const priorRingPositions = []; // Atome vorheriger Ringe dieser Seitenkette (z. B. TRP-Ring 1)
+    const priorRingPositions = []; // Atoms of previous rings of this side chain (e.g. TRP ring 1)
 
     ringDefs.forEach(ringNames => {
         const ids = ringNames.map(pfx);
@@ -130,9 +261,9 @@ function layoutSidechainRings(ringDefs, positions, scAdj, bondPx, pfx) {
             const idxA = fixedIdx[0], idxB = fixedIdx[1];
             const worldA = positions[ids[idxA]], worldB = positions[ids[idxB]];
             placed = anchorRingDouble(localPts, idxA, idxB, worldA, worldB, (optA, optB) => {
-                // Bei einem fusionierten Ring (z. B. TRP) so wählen, dass er vom bereits
-                // platzierten ersten Ring wegzeigt statt ihn zu überlappen; sonst (z. B. PRO)
-                // einfach die Seite mit größerem x (weiter weg vom Backbone).
+                // For a fused ring (e.g. TRP) pick the side pointing away from the
+                // already placed first ring instead of overlapping it; otherwise
+                // (e.g. PRO) simply the side with larger x (further from the backbone).
                 const score = pts => others.length > 0
                     ? pts.reduce((s, p) => s + others.reduce((s2, o) => s2 + Math.hypot(p.x - o.pos.x, p.y - o.pos.y), 0), 0)
                     : pts.reduce((s, p) => s + p.x, 0);
@@ -154,9 +285,14 @@ function layoutSidechainRings(ringDefs, positions, scAdj, bondPx, pfx) {
     });
 }
 
-// Dreht das Ringsystem einer Seitenkette um sein erstes Atom (z. B. CG), sodass sein
-// Schwerpunkt auf der Höhe dieses Atoms liegt. Fusionierte Ringe (TRP) knicken sonst
-// schräg nach unten ab und ragen weit in die nächste Aminosäure hinein.
+/**
+ * Rotates the ring system of a side chain around its first atom (e.g. CG) so that
+ * its centroid lies at the height of that atom. Otherwise fused rings (TRP) bend
+ * diagonally downwards and reach far into the next residue's band.
+ * @param {!Array<!Array<string>>} ringDefs Rings as atom names.
+ * @param {!Object<string, {x: number, y: number}>} positions Updated in place.
+ * @param {function(string): string} pfx Maps an atom name to the residue's atom id.
+ */
 function balanceRingSystem(ringDefs, positions, pfx) {
     const ids = [...new Set(ringDefs.flat().map(pfx))].filter(id => positions[id]);
     const pivotId = pfx(ringDefs[0][0]);
@@ -173,8 +309,17 @@ function balanceRingSystem(ringDefs, positions, pfx) {
     });
 }
 
-// Platziert Atome, die von einem Ring abzweigen (z. B. das OH bei TYR), radial vom
-// (angenäherten) Ringzentrum weg, im Abstand `bondPx`.
+/**
+ * Places atoms branching off a ring (e.g. OH of TYR) radially away from the
+ * (approximate) ring centre, at distance `bondPx`.
+ * @param {!Array<!Array<string>>} ringDefs Rings as atom names.
+ * @param {!Object<string, {x: number, y: number}>} positions Updated in place.
+ * @param {!Object<string, !Object>} atomById Graph nodes by atom id.
+ * @param {!Object<string, !Array<string>>} scAdj Side-chain adjacency by atom id.
+ * @param {function(string, string): number} bondPx Edge length between two atom ids (px).
+ * @param {function(string): string} pfx Maps an atom name to the residue's atom id.
+ * @param {string} resPrefix Atom id prefix of the residue (`<chain>_<pos>_`).
+ */
 function placeRingBranches(ringDefs, positions, atomById, scAdj, bondPx, pfx, resPrefix) {
     ringDefs.forEach(ringNames => {
         const ids = ringNames.map(pfx);
@@ -197,11 +342,18 @@ function placeRingBranches(ringDefs, positions, atomById, scAdj, bondPx, pfx, re
     });
 }
 
-// Liganden: 2D-Anordnung aus den 3D-Koordinaten. Projektion auf die beiden Hauptachsen
-// (die längere waagerecht), danach entzerrt eine kurze Kräfte-Simulation überlappende
-// Atome. `linkPx(bond)` ist die Ziellänge einer Bindung in Pixeln. Liefert Positionen
-// relativ zur linken oberen Ecke sowie Breite und Höhe.
-const LIGAND_PAD = 28; // Abstand zum Rand des Bandes (px)
+const LIGAND_PAD = 28; // Padding between ligand and the edge of its band (px)
+
+/**
+ * 2D layout of a ligand derived from its 3D coordinates: projection onto the two
+ * principal axes (the longer one horizontal), then a short force simulation
+ * untangles overlapping atoms.
+ * @param {!Array<!Object>} atoms Graph nodes of the ligand (with x/y/z in Å).
+ * @param {!Array<!Object>} bonds Ligand edges (`source`, `target`, `length`).
+ * @param {function({length: number}): number} linkPx Target length of a bond in px.
+ * @return {{positions: !Object<string, {x: number, y: number}>, width: number,
+ *     height: number}} Positions relative to the top-left corner, and the extent.
+ */
 function layoutLigand(atoms, bonds, linkPx) {
     const n = atoms.length;
     const mean = ['x', 'y', 'z'].map(k => d3.mean(atoms, a => a[k]));
@@ -209,7 +361,8 @@ function layoutLigand(atoms, bonds, linkPx) {
     const cov = [0, 1, 2].map(i => [0, 1, 2].map(j => d3.sum(centered, p => p[i] * p[j])));
     const mul = v => cov.map(row => row[0] * v[0] + row[1] * v[1] + row[2] * v[2]);
     const norm = v => { const l = Math.hypot(...v) || 1; return v.map(c => c / l); };
-    // Hauptachsen per Potenzmethode (deterministisch); die zweite senkrecht zur ersten
+    // Principal axes of the covariance matrix via power iteration (deterministic,
+    // no random start); the second axis is kept orthogonal to the first.
     const axis = orthogonalTo => {
         let v = orthogonalTo ? norm([orthogonalTo[1], -orthogonalTo[0], 0.3]) : [1, 0.6, 0.3];
         for (let i = 0; i < 50; i++) {
@@ -246,6 +399,22 @@ function layoutLigand(atoms, bonds, linkPx) {
 }
 
 // ===== Layout =====
+/**
+ * Computes the 2D position of every atom and the vertical extent of every residue
+ * band. Residues are stacked top to bottom in file order. Per amino acid: backbone
+ * N, CA, C in a vertical column at BACKBONE_X, O/OXT to the left, the side chain as
+ * a tree growing to the right from CA, rings placed as polygons. Ligands (residues
+ * with ligand edges) get their own band laid out by layoutLigand.
+ *
+ * In the `schematic` layout bands have a fixed height (BAND_HEIGHT) and fixed
+ * spacings; in the `proportional` layout all distances are bond lengths ×
+ * PROP_SCALE and band heights follow from the peptide bonds.
+ * @param {!Object} graphData Graph data (`residues`, `nodes`, `edges`).
+ * @param {string} layout `'schematic'` or `'proportional'`.
+ * @return {{positions: !Object<string, {x: number, y: number}>,
+ *     bandBounds: !Array<{yStart: number, yEnd: number}>}} Atom positions by id
+ *     and band bounds indexed by residue index.
+ */
 function computePositions(graphData, layout) {
     const isProp = layout === 'proportional';
     const positions = {};
@@ -268,13 +437,15 @@ function computePositions(graphData, layout) {
         bl[e.source][e.target] = e.length;
         bl[e.target][e.source] = e.length;
     });
+    // Falls back to 1.5 Å (typical C–C distance) for unbonded or missing atom pairs.
     function getBL(a, b) { return (bl[a] && bl[a][b]) ? bl[a][b] : 1.5; }
 
     const leafH = isProp ? 1.5 * PROP_SCALE : LEAF_H;
+    // y of the next N atom in the proportional layout.
     let yPropCursor = 20;
     const bandBounds = [];
 
-    // Bindungen innerhalb der Liganden je Residuum
+    // Bonds within ligands, grouped by residue (atom id without the atom name).
     const ligandBonds = d3.group(graphData.edges.filter(e => e.type === 'ligand'),
         e => e.source.slice(0, e.source.lastIndexOf('_')));
 
@@ -282,10 +453,10 @@ function computePositions(graphData, layout) {
         const ri = res.index;
         const pfx = s => `${res.chain}_${res.pos}_${s}`;
 
-        // Bänder liegen lückenlos untereinander; Liganden-Bänder sind so hoch wie nötig
+        // Bands are stacked without gaps; ligand bands are as tall as needed.
         const yStart = ri === 0 ? 0 : bandBounds[ri - 1].yEnd;
 
-        // --- Ligand: eigenes Band, mindestens so hoch wie das einer Aminosäure ---
+        // --- Ligand: own band; in the schematic layout at least as tall as an amino acid's ---
         const ligBonds = ligandBonds.get(`${res.chain}_${res.pos}`);
         if (ligBonds) {
             const ids = [...new Set(ligBonds.flatMap(e => [e.source, e.target]))];
@@ -327,9 +498,9 @@ function computePositions(graphData, layout) {
             positions[oId] = { x: BACKBONE_X - dx, y: isProp ? yC : bandY + BB_Y.O };
         }
         if (atomById[oxtId]) {
-            // Von O wegversetzt (Carboxylat-Sauerstoffe liegen sonst fast deckungsgleich).
-            // Im Proportional-Layout per Winkel statt Pixel-Versatz, damit die
-            // Kantenlänge weiterhin der echten Bindungslänge entspricht.
+            // Offset from O (otherwise the two carboxylate oxygens almost coincide).
+            // In the proportional layout via an angle instead of a pixel offset so
+            // that the edge length still equals the real bond length.
             if (isProp) {
                 const dist = getBL(cId, oxtId) * PROP_SCALE;
                 const angle = Math.PI * (35 / 180);
@@ -354,19 +525,20 @@ function computePositions(graphData, layout) {
             if (cbList.length > 0) {
                 const scVisited = new Set([...BACKBONE_ATOMS].map(a => pfx(a)));
 
-                // Ring-Atome werden separat mit Ring-Geometrie platziert und daher von der
-                // normalen Baum-Traversierung ausgeklammert; als Baum gezeichnet würden sich
-                // die ringschließenden Bindungen sonst überkreuzen (z. B. bei TRP).
-                // Im schematischen Layout bleibt PRO beim Baum: Sein Ring läuft über die
-                // im Raster fest platzierten Backbone-Atome N/CA.
-                // Modifizierte Aminosäuren (z. B. PTR, HYP) übernehmen die Ringe der Ausgangs-
-                // Aminosäure, sofern die Atome gleich heißen.
+                // Ring atoms are placed separately with ring geometry and therefore
+                // excluded from the regular tree traversal; drawn as a tree, the
+                // ring-closing bonds would cross each other (e.g. for TRP).
+                // In the schematic layout PRO stays a tree: its ring runs through the
+                // backbone atoms N/CA, which are fixed to the grid.
+                // Modified amino acids (e.g. PTR, HYP) inherit the rings of their parent
+                // amino acid as long as the atom names match.
                 const ringDefs = (SIDECHAIN_RINGS[res.name] || SIDECHAIN_RINGS[res.parent] || [])
                     .filter(ring => ring.every(name => atomById[pfx(name)]))
                     .filter(ring => isProp || !ring.some(name => BACKBONE_ATOMS.has(name)));
                 const bondPx = isProp ? (a, b) => getBL(a, b) * PROP_SCALE : () => SC_RING_SIDE;
                 ringDefs.forEach(ringNames => ringNames.forEach(name => scVisited.add(pfx(name))));
 
+                // Depth-first spanning tree of the side chain within this residue.
                 function buildTree(id, parentId) {
                     scVisited.add(id);
                     const children = (scAdj[id] || []).filter(nid => {
@@ -383,6 +555,8 @@ function computePositions(graphData, layout) {
                         : node.children.reduce((s, c) => s + countLeaves(c), 0);
                 }
 
+                // Each tree level moves one step right; every subtree gets vertical
+                // space proportional to its number of leaves and is centred within it.
                 function assignPos(node, xParent, yTop) {
                     const dx = isProp ? getBL(node.parentId, node.id) * PROP_SCALE : SC_COL_W;
                     const x = xParent + dx;
@@ -408,10 +582,10 @@ function computePositions(graphData, layout) {
                     yTop += lH;
                 });
 
-                // Ring-Atome erst platzieren, nachdem ihr Anker (z. B. CB) oben eine Position bekommen hat.
+                // Place ring atoms only after their anchor (e.g. CB) got a position above.
                 if (ringDefs.length > 0) {
                     layoutSidechainRings(ringDefs, positions, scAdj, bondPx, pfx);
-                    // PRO-Ring nicht drehen: Er hängt an den festen Backbone-Atomen N/CA.
+                    // Do not rotate the PRO ring: it hangs on the fixed backbone atoms N/CA.
                     const anchoredToBackbone = ringDefs.some(ring => ring.some(name => BACKBONE_ATOMS.has(name)));
                     if (!anchoredToBackbone) balanceRingSystem(ringDefs, positions, pfx);
                     placeRingBranches(ringDefs, positions, atomById, scAdj, bondPx, pfx, resPrefix);
@@ -420,6 +594,8 @@ function computePositions(graphData, layout) {
         }
 
         // --- Band bounds & cursor advance ---
+        // Proportional layout: the next N follows at the distance of the peptide
+        // bond C–N; the band boundary lies in the middle of that bond.
         if (isProp) {
             const nextRes = graphData.residues[ri + 1];
             const peptideAdv = nextRes
@@ -438,23 +614,49 @@ function computePositions(graphData, layout) {
 }
 
 // ===== Render (D3) =====
+/** @const {number} Duration of layout/style transitions (ms). */
 const TRANSITION_MS = 600;
+/** @const {number} Extra pan space around the content (px). */
 const VIEW_PAD = 40;
 
+/**
+ * Stable key of a residue (d3 data joins, selection state, sequence bar).
+ * @param {!Object} r Residue from `graphData.residues`.
+ * @return {string} `<chain>_<pos>_<name>`.
+ */
 const residueKey = r => `${r.chain}_${r.pos}_${r.name}`;
+/**
+ * Stable key of an edge; also matches the keys of `bondEnsemble.bonds`.
+ * @param {!Object} e Edge from `graphData.edges`.
+ * @return {string} `<source>|<target>`.
+ */
 const edgeKey = e => `${e.source}|${e.target}`;
 
-// D3s Standard-Begrenzung, zusätzlich darf die Ansicht nie rechts vom linken Inhaltsrand
-// beginnen (translate-x ≤ 0) — auch nicht beim Herauszoomen, wo D3 sonst zentriert.
 const d3DefaultConstrain = d3.zoom().constrain();
+/**
+ * Zoom constraint: d3's default constraint, plus the view may never start right of
+ * the left content edge (translate-x ≤ 0), not even when zooming out, where d3
+ * would otherwise centre the content.
+ * @param {!d3.ZoomTransform} transform Proposed transform.
+ * @param {!Array<!Array<number>>} extent Viewport extent.
+ * @param {!Array<!Array<number>>} translateExtent Allowed content extent.
+ * @return {!d3.ZoomTransform} The constrained transform.
+ */
 function constrainLeftEdge(transform, extent, translateExtent) {
     const t = d3DefaultConstrain(transform, extent, translateExtent);
     return t.x > 0 ? d3.zoomIdentity.translate(0, t.y).scale(t.k) : t;
 }
 
-// Einmaliger Aufbau: Viewport-Gruppe (wird per Zoom transformiert) mit den Layern.
-// Mausrad scrollt wie bisher, Strg + Mausrad (bzw. Pinch auf dem Trackpad) zoomt,
-// Ziehen verschiebt die Ansicht.
+/**
+ * One-time setup of the graph SVG: a viewport group (transformed by d3.zoom) with
+ * the layers bands, labels, edges and nodes (drawn in this order). The mouse wheel
+ * pans vertically (Shift + wheel horizontally), Ctrl + wheel (or trackpad pinch)
+ * zooms, dragging pans the view.
+ * @return {!Object} The canvas object shared by all render functions: `svg`,
+ *     `viewport`, `zoom` and `state`. Render functions later attach further
+ *     selections to it (`seqCells`, `tableRows`, `tableScroll`,
+ *     `firstRowByResidue`, `ramaPoints`, `ramaAngles`).
+ */
 function setupCanvas() {
     const svg = d3.select('#protein-svg');
     const viewport = svg.append('g').attr('class', 'viewport');
@@ -466,9 +668,11 @@ function setupCanvas() {
     const zoom = d3.zoom()
         .scaleExtent([0.1, 4])
         .extent(() => [[0, 0], [svg.node().clientWidth, svg.node().clientHeight]])
+        // The zoom behaviour only handles Ctrl + wheel; plain wheel events are
+        // handled by the 'wheel.pan' listener below.
         .filter(event => (event.type === 'wheel' ? event.ctrlKey : !event.ctrlKey) && !event.button)
-        // D3 verzehnfacht bei gedrückter Strg-Taste das Delta (für Pinch-Gesten); hier
-        // ein einheitlicher Faktor, damit eine Mausrad-Raste nicht zu stark zoomt.
+        // d3 multiplies the delta by ten while Ctrl is held (for pinch gestures); use
+        // a uniform factor instead so that one mouse-wheel notch does not zoom too far.
         .wheelDelta(event => -event.deltaY * (event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 0.005))
         .constrain(constrainLeftEdge)
         .on('zoom', event => {
@@ -477,6 +681,7 @@ function setupCanvas() {
         });
 
     svg.call(zoom)
+        // Plain wheel pans the view; deltaMode 1/2 = lines/pages, converted to px.
         .on('wheel.pan', event => {
             if (event.ctrlKey) return;
             event.preventDefault();
@@ -490,12 +695,26 @@ function setupCanvas() {
 
     canvas = {
         svg, viewport, zoom,
-        // pendingJump: Ansichten, die beim nächsten Einblenden noch zur Auswahl springen müssen.
+        // residues/bandBounds: last rendered layout; selectedKey/selectedResidue: residue
+        // selected via sequence bar or Ramachandran plot; activeTab: data-tab of the
+        // visible tab; pendingJump: views that still have to jump to the selection
+        // the next time they are shown.
         state: { residues: [], bandBounds: [], selectedKey: null, activeTab: 'graph', pendingJump: new Set() },
     };
     return canvas;
 }
 
+/**
+ * Draws (or updates) the graph tab with d3 data joins, so that switching layout or
+ * bond style animates atoms and bonds to their new positions/colours. Also re-renders
+ * the sequence bar and the B-factor legend.
+ * @param {!Object} canvas Canvas object from setupCanvas.
+ * @param {!Object} graphData Graph data (`residues`, `nodes`, `edges`).
+ * @param {string} bondStyle `'gradient'` (length, red → green), `'mono'`,
+ *     `'reference'` (Z-score class) or `'bfactor'`.
+ * @param {string} layout `'schematic'` or `'proportional'`.
+ * @param {boolean} animate Whether to use transitions.
+ */
 function render(canvas, graphData, bondStyle, layout, animate) {
     const { positions, bandBounds } = computePositions(graphData, layout);
 
@@ -505,7 +724,7 @@ function render(canvas, graphData, bondStyle, layout, animate) {
     const { svg, viewport, zoom } = canvas;
     const viewW = svg.node().clientWidth;
     const viewH = svg.node().clientHeight;
-    // Spur für Disulfidbrücken rechts neben allen Atomen, eine Bahn je Brücke
+    // Gutter for disulfide bridges right of all atoms, one lane per bridge
     const disulfideCount = graphData.edges.filter(e => e.type === 'disulfide').length;
     const gutterX = d3.max(allPos, p => p.x) + NODE_R + SS_GUTTER_GAP;
     const maxX = d3.max(allPos, p => p.x) + NODE_R + 60 + (disulfideCount ? SS_GUTTER_GAP + disulfideCount * SS_LANE_W : 0);
@@ -520,7 +739,7 @@ function render(canvas, graphData, bondStyle, layout, animate) {
     renderSequence(canvas, graphData);
 
     zoom.translateExtent([[-VIEW_PAD, -VIEW_PAD], [contentW + VIEW_PAD, Math.max(contentH, viewH) + VIEW_PAD]]);
-    // Aktuelle Transformation an die neuen Grenzen anpassen (z. B. nach Layoutwechsel).
+    // Clamp the current transform to the new bounds (e.g. after a layout switch).
     svg.call(zoom.translateBy, 0, 0);
 
     const t = d3.transition().duration(animate ? TRANSITION_MS : 0);
@@ -536,8 +755,9 @@ function render(canvas, graphData, bondStyle, layout, animate) {
     const bandResidues = graphData.residues.filter(r => bandBounds[r.index]);
     const bandY = r => bandBounds[r.index].yStart;
 
-    // Kurzer Trennstrich links an jeder Grenze zwischen zwei Aminosäuren (statt
-    // farbiger Bänder, in die Seitenketten benachbarter Residuen hineinragen können).
+    // Short separator line on the left at every boundary between two residues
+    // (instead of coloured bands, which side chains of neighbouring residues may
+    // reach into).
     gBands.selectAll('line.residue-separator')
         .data(bandResidues.filter(r => r.index > 0), residueKey)
         .join(
@@ -554,6 +774,7 @@ function render(canvas, graphData, bondStyle, layout, animate) {
         .attr('y2', bandY);
 
     const pos = (r, atom) => positions[`${r.chain}_${r.pos}_${atom}`];
+    // Faint vertical guide along the backbone from N to C of each amino acid.
     gBands.selectAll('line.backbone-guide')
         .data(bandResidues.filter(r => pos(r, 'N') && pos(r, 'C')), residueKey)
         .join(
@@ -572,6 +793,7 @@ function render(canvas, graphData, bondStyle, layout, animate) {
         .attr('y1', r => pos(r, 'N').y - 5)
         .attr('y2', r => pos(r, 'C').y + 5);
 
+    // Residue label (one-letter code, three-letter code, position), vertically centred in the band.
     const labelTransform = r => `translate(8,${(bandBounds[r.index].yStart + bandBounds[r.index].yEnd) / 2})`;
     gLabels.selectAll('g.residue-label')
         .data(bandResidues, residueKey)
@@ -596,8 +818,8 @@ function render(canvas, graphData, bondStyle, layout, animate) {
 
     // --- Bond color ---
     const visibleEdges = graphData.edges.filter(e => positions[e.source] && positions[e.target]);
-    // Disulfidbrücken verbinden weit entfernte Residuen und werden als Bogen gezeichnet; die
-    // Farbskala bleibt bei den übrigen Bindungen (SG–SG ist deutlich länger).
+    // Disulfide bridges connect distant residues and are drawn as arcs; the colour
+    // scale is based on the other bonds only (SG–SG is considerably longer).
     const straightEdges = visibleEdges.filter(e => e.type !== 'disulfide');
     const arcEdges = visibleEdges.filter(e => e.type === 'disulfide');
     const [minLen, maxLen] = d3.extent(straightEdges, e => e.length);
@@ -609,6 +831,9 @@ function render(canvas, graphData, bondStyle, layout, animate) {
     const bScale = bFactorScale(graphData.nodes.filter(n => positions[n.id]));
     renderBFactorLegend(bScale);
     const bColor = b => b === null || b === undefined || !bScale ? zColors.none : bScale.color(b);
+    // Bond colour for the selected style; 'gradient' maps the length range of the
+    // shown bonds to hue 0 (red, shortest) … 120 (green, longest). In 'bfactor'
+    // mode a bond gets the mean B-factor of its two atoms.
     function bondColor(e) {
         if (bondStyle === 'mono') return monoColor;
         if (bondStyle === 'reference') return zColors[zClass(zScore(e))];
@@ -621,6 +846,8 @@ function render(canvas, graphData, bondStyle, layout, animate) {
     const atomColor = n => bondStyle === 'bfactor' ? bColor(n.temp_factor) : getElementColor(n.element);
 
     // --- Edges ---
+    // Straight bonds; side-chain bonds dashed, ligand bonds dash-dotted. The
+    // tooltip shows length, bond type and reference value.
     const atomLabel = id => id.slice(id.lastIndexOf('_') + 1);
     gEdges.selectAll('line.bond')
         .data(straightEdges, edgeKey)
@@ -645,9 +872,10 @@ function render(canvas, graphData, bondStyle, layout, animate) {
         .attr('x1', e => positions[e.source].x).attr('y1', e => positions[e.source].y)
         .attr('x2', e => positions[e.target].x).attr('y2', e => positions[e.target].y);
 
-    // Disulfidbrücke als Klammer: vom SG waagerecht nach rechts in die eigene Bahn der Spur,
-    // dort senkrecht zum Partner und waagerecht zurück (abgerundete Ecken). So kreuzt sie keine
-    // Seitenketten anderer Residuen. `mid` ist die Mitte des senkrechten Abschnitts.
+    // Disulfide bridge as a bracket: from SG horizontally right into its own lane of
+    // the gutter, there vertically to the partner and horizontally back (rounded
+    // corners). This way it crosses no side chains of other residues. `mid` is the
+    // middle of the vertical segment.
     const lanes = new Map(arcEdges.map((e, i) => [edgeKey(e), i]));
     function arcGeometry(e) {
         const src = positions[e.source], tgt = positions[e.target];
@@ -680,7 +908,8 @@ function render(canvas, graphData, bondStyle, layout, animate) {
     d3.select('#legend-disulfide').property('hidden', !graphData.edges.some(e => e.type === 'disulfide'));
     d3.select('#legend-ligand').property('hidden', !graphData.edges.some(e => e.type === 'ligand'));
 
-    // Längenbeschriftung neben der Kantenmitte; bei zu kurzen Kanten ausgeblendet.
+    // Length label next to the edge midpoint (offset perpendicular to the edge);
+    // hidden for edges shorter than 20 px.
     function bondLabel(e) {
         if (e.type === 'disulfide') {
             const { mid } = arcGeometry(e);
@@ -713,7 +942,7 @@ function render(canvas, graphData, bondStyle, layout, animate) {
         .attr('opacity', e => bondLabel(e).visible ? 1 : 0);
 
     // --- Nodes ---
-    // Bindungswinkel mit dem Atom in der Mitte (für den Tooltip)
+    // Bond angles with this atom at the centre (for the tooltip)
     const anglesByCenter = analyzeAngles(graphData).byCenter;
     const nodeTransform = n => `translate(${positions[n.id].x},${positions[n.id].y})`;
     gNodes.selectAll('g.atom-group')
@@ -743,12 +972,20 @@ function render(canvas, graphData, bondStyle, layout, animate) {
         .attr('transform', nodeTransform);
 }
 
-// ===== Färbung nach B-Faktor =====
-// Blau (niedrig) über Violett nach Rot (hoch). Die Skala reicht vom 2. bis zum 98. Perzentil
-// der angezeigten Atome, damit einzelne Extremwerte die Farben nicht zusammendrücken.
+// ===== Colouring by B-factor =====
+// Blue (low) via violet to red (high). The scale spans the 2nd to the 98th
+// percentile of the displayed atoms so that single extreme values do not compress
+// the colours.
 const B_HUE_LOW = 230;
 const B_HUE_HIGH = 360;
 const formatBFactor = v => v.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * Builds the B-factor colour scale for the given atoms.
+ * @param {!Array<!Object>} nodes Graph nodes (`temp_factor` may be null).
+ * @return {?{low: number, high: number, clippedLow: boolean, clippedHigh: boolean,
+ *     color: function(number): string}} The scale, or null if no atom has a B-factor.
+ */
 function bFactorScale(nodes) {
     const values = nodes.map(n => n.temp_factor).filter(b => b !== null && b !== undefined).sort(d3.ascending);
     if (!values.length) return null;
@@ -762,6 +999,11 @@ function bFactorScale(nodes) {
     };
 }
 
+/**
+ * Updates the B-factor legend (`#legend-bfactor`): gradient bar and end values,
+ * prefixed with ≤/≥ when values outside the percentile range were clipped.
+ * @param {?Object} scale Result of bFactorScale.
+ */
 function renderBFactorLegend(scale) {
     const legend = d3.select('#legend-bfactor');
     if (legend.empty()) return;
@@ -774,22 +1016,31 @@ function renderBFactorLegend(scale) {
     legend.select('.bfactor-high').text(`${scale.clippedHigh ? '≥ ' : ''}${formatBFactor(scale.high)}`);
 }
 
-// ===== Sequenzleiste =====
-// Spur der Disulfidbrücken im Graphen: Abstand zu den Atomen und Breite je Bahn
+// ===== Sequence bar =====
+// Disulfide gutter in the graph (used by render): gap to the atoms and width per lane
 const SS_GUTTER_GAP = 40;
 const SS_LANE_W = 16;
 
+// Sequence bar geometry (px): cell size, height of the number row above the cells,
+// extra gap between chains and at chain breaks / cis peptide bonds.
 const SEQ_CELL_W = 16;
 const SEQ_CELL_H = 22;
 const SEQ_TICK_H = 14;
 const SEQ_CHAIN_GAP = 10;
 const SEQ_BREAK_GAP = 4;
 
-// Peptidbindungen zwischen aufeinanderfolgenden Aminosäuren einer Chain: `possible` zählt alle
-// solchen Paare, `breaks` die Kettenlücken darunter, also Paare ohne Peptidbindung, weil der
-// Server den C–N-Abstand als zu groß verworfen hat (z. B. in der Struktur fehlende Residuen).
-// `breaks` liefert je Lücke (Schlüssel: Index des Residuums danach) das Residuum davor und den
-// Abstand. Liganden (ohne N/CA/C) zählen nicht.
+/**
+ * Analyses peptide bonds between consecutive amino acids of the same chain.
+ * `possible` counts all such pairs, `breaks` the chain breaks among them, i.e.
+ * pairs without a peptide bond because the server rejected the C–N distance as
+ * too large (e.g. residues missing from the model). Ligands (without N/CA/C) do
+ * not count.
+ * @param {!Object} graphData Graph data.
+ * @return {{possible: number, formed: number,
+ *     breaks: !Map<number, {prev: !Object, distance: number}>}} `breaks` is keyed
+ *     by the index of the residue after the gap and holds the residue before it
+ *     and the C–N distance in Å.
+ */
 function analyzePeptideBonds(graphData) {
     const nodes = new Map(graphData.nodes.map(n => [n.id, n]));
     const peptides = new Set(graphData.edges.filter(e => e.type === 'peptide').map(edgeKey));
@@ -808,12 +1059,17 @@ function analyzePeptideBonds(graphData) {
     return { possible, formed: possible - breaks.size, breaks };
 }
 
-// Breite eines Zeichens der Nummernbeschriftung (9px Roboto Mono) plus Mindestabstand
+// Width of one character of the number labels (9px Roboto Mono) plus minimum gap
 const SEQ_TICK_CHAR_W = 5.5;
 const SEQ_TICK_GAP = 6;
 
-// Nummern über der Sequenzleiste: Kettenanfang ("A 1") und jede Zehnerposition. Überlappt
-// eine Beschriftung die vorherige, entfällt die Zehnerposition; Kettenanfänge bleiben immer.
+/**
+ * Numbers above the sequence bar: chain start ("A 1") and every multiple of ten.
+ * If a label would overlap the previous one, the multiple-of-ten label is dropped;
+ * chain starts are always kept.
+ * @param {!Array<{res: !Object, x: number, chainStart: boolean}>} cells Sequence cells.
+ * @return {!Array<{cell: !Object, label: (string|number), chainStart: boolean}>} Ticks.
+ */
 function sequenceTicks(cells) {
     const end = t => t.cell.x + t.label.length * SEQ_TICK_CHAR_W + SEQ_TICK_GAP;
     const ticks = [];
@@ -831,17 +1087,29 @@ function sequenceTicks(cells) {
     return ticks;
 }
 
-// Mikroheterogenität: Die Konformationen (altLoc) des Residuums sind verschiedene Aminosäuren.
-// Liefert z. B. "PRO (A) · SER (B, C)" oder null, wenn alle Konformationen dieselbe sind.
+/**
+ * Microheterogeneity: the alternate conformations (altLoc) of a residue are
+ * different amino acids.
+ * @param {!Object} res Residue with `conformations` (altLoc -> residue name).
+ * @return {?string} E.g. "PRO (A) · SER (B, C)", or null if all conformations
+ *     are the same amino acid.
+ */
 function residueVariants(res) {
     const byName = d3.groups(Object.entries(res.conformations || {}), ([, name]) => name);
     if (byName.length < 2) return null;
     return byName.map(([name, items]) => `${name} (${items.map(([altloc]) => altloc).join(', ')})`).join(' · ');
 }
 
-// Ein-Buchstaben-Sequenz als Zellenreihe; Chain-Wechsel bekommen eine Lücke, Kettenlücken
-// innerhalb einer Chain einen roten Strich. Klick auf eine Zelle zentriert die zugehörige
-// Aminosäure im Graphen.
+/**
+ * Renders the one-letter sequence as a row of cells (`#sequence-svg`). Chain
+ * changes get a gap, chain breaks within a chain a red line, cis peptide bonds
+ * their own marker. Cells are marked for modified residues, disulfide cysteines
+ * and microheterogeneity. Clicking a cell selects the residue and jumps to it in
+ * the visible view (see jumpToResidue). Stores the cell selection in
+ * `canvas.seqCells`.
+ * @param {!Object} canvas Canvas object.
+ * @param {!Object} graphData Graph data.
+ */
 function renderSequence(canvas, graphData) {
     const svg = d3.select('#sequence-svg');
     if (svg.empty()) return;
@@ -849,7 +1117,7 @@ function renderSequence(canvas, graphData) {
     const residues = graphData.residues;
     const { breaks } = analyzePeptideBonds(graphData);
     const bridges = disulfidePartners(graphData);
-    // cis-Peptidbindungen, Schlüssel: Index des Residuums nach der Bindung
+    // cis peptide bonds, keyed by the index of the residue after the bond
     const cisBonds = new Map(analyzeAngles(graphData).omegas.filter(o => o.kind === 'cis').map(o => [o.res.index, o]));
     const cisMarks = [];
     let x = 0;
@@ -860,7 +1128,7 @@ function renderSequence(canvas, graphData) {
         const chainBreak = breaks.get(res.index);
         if (chainBreak) {
             x += SEQ_BREAK_GAP;
-            // Mitte des Zwischenraums zwischen den beiden Zellen (Zellen sind SEQ_CELL_W - 2 breit)
+            // Middle of the space between the two cells (cells are SEQ_CELL_W - 2 wide)
             gaps.push({ ...chainBreak, res, x: x - (SEQ_BREAK_GAP + 2) / 2 });
         }
         const cis = cisBonds.get(res.index);
@@ -874,7 +1142,7 @@ function renderSequence(canvas, graphData) {
     });
     const cellKey = c => residueKey(c.res);
 
-    // Zusätzliche Breite, damit eine Tick-Beschriftung an der letzten Zelle nicht abgeschnitten wird.
+    // Extra width so that a tick label at the last cell is not cut off.
     svg.attr('width', x + 40).attr('height', SEQ_TICK_H + SEQ_CELL_H);
 
     svg.selectAll('text.seq-tick')
@@ -891,10 +1159,10 @@ function renderSequence(canvas, graphData) {
             const g = enter.append('g');
             g.append('title');
             g.append('rect').attr('width', SEQ_CELL_W - 2).attr('height', SEQ_CELL_H).attr('rx', 3);
-            // Punkt oben rechts: modifizierte Aminosäure; oben links: Cystein mit Disulfidbrücke
+            // Dot top right: modified amino acid; top left: cysteine with disulfide bridge
             g.append('circle').attr('class', 'seq-mod-mark').attr('cx', SEQ_CELL_W - 5).attr('cy', 3.5).attr('r', 2);
             g.append('circle').attr('class', 'seq-ss-mark').attr('cx', 3).attr('cy', 3.5).attr('r', 2);
-            // Markierung am unteren Rand: Konformationen sind verschiedene Aminosäuren
+            // Mark at the bottom edge: conformations are different amino acids
             g.append('rect').attr('class', 'seq-conf-mark')
                 .attr('x', 2).attr('y', SEQ_CELL_H - 3).attr('width', SEQ_CELL_W - 6).attr('height', 2.5).attr('rx', 1.25);
             g.append('text').attr('x', (SEQ_CELL_W - 2) / 2).attr('y', SEQ_CELL_H / 2);
@@ -919,7 +1187,7 @@ function renderSequence(canvas, graphData) {
         .join(enter => {
             const g = enter.append('g').attr('class', 'seq-break');
             g.append('title');
-            // Breitere, unsichtbare Fläche, damit der Tooltip leicht zu treffen ist
+            // Wider invisible hit area so that the tooltip is easy to trigger
             g.append('rect').attr('class', 'seq-break-hit').attr('x', -4).attr('width', 8)
                 .attr('y', 0).attr('height', SEQ_TICK_H + SEQ_CELL_H);
             g.append('line').attr('y1', 1).attr('y2', SEQ_TICK_H + SEQ_CELL_H);
@@ -952,7 +1220,12 @@ function renderSequence(canvas, graphData) {
     updateSelection(canvas);
 }
 
-// Markiert die Zellen, deren Band gerade im Graph-Ausschnitt liegt.
+/**
+ * Highlights the sequence cells whose band currently lies in the visible part of
+ * the graph (called on every zoom/pan while the graph tab is active).
+ * @param {!Object} canvas Canvas object.
+ * @param {!d3.ZoomTransform} transform Current zoom transform.
+ */
 function updateSequenceView(canvas, transform) {
     if (!canvas || !canvas.seqCells) return;
     const { bandBounds } = canvas.state;
@@ -965,8 +1238,13 @@ function updateSequenceView(canvas, transform) {
     });
 }
 
-// Hebt die Zellen hervor, für die `inView` zutrifft, und scrollt die Leiste mit,
-// falls dieser Bereich aus ihrem sichtbaren Teil herausläuft.
+/**
+ * Highlights the cells for which `inView` is true and scrolls the sequence bar
+ * along if that range leaves its visible part (centred if it fits, otherwise
+ * aligned to the first cell).
+ * @param {!Object} canvas Canvas object.
+ * @param {function(!Object): boolean} inView Predicate on a sequence cell.
+ */
 function markSequenceInView(canvas, inView) {
     if (!canvas.seqCells) return;
     canvas.seqCells.classed('in-view', inView);
@@ -983,6 +1261,12 @@ function markSequenceInView(canvas, inView) {
         : (first + last) / 2 - width / 2;
 }
 
+/**
+ * Applies the `selected` class for the selected residue in all views: graph
+ * labels, sequence cells, data table rows and Ramachandran points (the selected
+ * point is raised to the top).
+ * @param {!Object} canvas Canvas object.
+ */
 function updateSelection(canvas) {
     const key = canvas.state.selectedKey;
     canvas.viewport.selectAll('g.residue-label').classed('selected', r => residueKey(r) === key);
@@ -991,8 +1275,14 @@ function updateSelection(canvas) {
     if (canvas.ramaPoints) canvas.ramaPoints.classed('selected', p => residueKey(p.res) === key).filter('.selected').raise();
 }
 
-// Springt in der sichtbaren Ansicht (Graph oder Tabelle) zur Aminosäure; die jeweils
-// andere Ansicht holt den Sprung nach, sobald ihr Tab eingeblendet wird.
+/**
+ * Selects a residue and jumps to it in the visible view (graph or data table);
+ * the other of the two views catches up on the jump as soon as its tab is shown
+ * (via `state.pendingJump`). When called from another tab (Ramachandran plot),
+ * both views jump later.
+ * @param {!Object} canvas Canvas object.
+ * @param {!Object} res Residue from `graphData.residues`.
+ */
 function jumpToResidue(canvas, res) {
     canvas.state.selectedKey = residueKey(res);
     canvas.state.selectedResidue = res;
@@ -1007,10 +1297,16 @@ function jumpToResidue(canvas, res) {
     if (activeTab === 'data') scrollTableToResidue(canvas, res, true);
 }
 
+/**
+ * Scrolls the graph vertically so that the residue's band is centred.
+ * @param {!Object} canvas Canvas object.
+ * @param {!Object} res Residue.
+ * @param {number} duration Transition duration (ms); 0 jumps immediately.
+ */
 function jumpGraphToResidue(canvas, res, duration) {
     const b = canvas.state.bandBounds[res.index];
     if (!b) return;
-    // Horizontale Position und Zoomstufe beibehalten, nur vertikal zum Band springen.
+    // Keep horizontal position and zoom level, only jump vertically to the band.
     const node = canvas.svg.node();
     const t = d3.zoomTransform(node);
     const mid = (b.yStart + b.yEnd) / 2;
@@ -1019,8 +1315,14 @@ function jumpGraphToResidue(canvas, res, duration) {
         .call(canvas.zoom.translateBy, 0, dy);
 }
 
-// ===== Datentabelle =====
+// ===== Data table =====
 const fixed = digits => v => (v === null || v === undefined ? '' : v.toFixed(digits));
+/**
+ * Columns of the atom table (data tab); also the column set of the "atoms" CSV
+ * export. `value` extracts the cell from a graph node, `num` right-aligns it.
+ * @const {!Array<{label: string, title: string, value: function(!Object): *,
+ *     num: (boolean|undefined)}>}
+ */
 const DATA_COLUMNS = [
     { label: gettext('Record'),    title: gettext('Record-Typ (ATOM/HETATM)'), value: n => n.record },
     { label: gettext('Nr.'),       title: gettext('Atom-Seriennummer'),        value: n => n.serial, num: true },
@@ -1039,10 +1341,20 @@ const DATA_COLUMNS = [
     { label: gettext('Ladung'),    title: gettext('Formalladung'),             value: n => n.charge },
 ];
 
+/**
+ * residueKey() computed from a graph node instead of a residue.
+ * @param {!Object} n Graph node.
+ * @return {string} `<chain>_<pos>_<name>`.
+ */
 const nodeResidueKey = n => `${n.chain}_${n.residue_seq}${n.i_code || ''}_${n.residue}`;
 
-// Eine Zeile pro Atom, in der Reihenfolge der PDB-Datei; die erste Zeile jeder
-// Aminosäure bekommt eine Trennlinie.
+/**
+ * Renders the atom table: one row per atom in PDB file order; the first row of
+ * every residue gets a separator line. Stores `tableRows`, `tableScroll` and
+ * `firstRowByResidue` (residue index -> first row element) on the canvas.
+ * @param {!Object} canvas Canvas object.
+ * @param {!Array<!Object>} nodes Graph nodes.
+ */
 function renderDataTable(canvas, nodes) {
     const table = d3.select('#data-table-scroll table');
     if (table.empty()) return;
@@ -1080,6 +1392,13 @@ function renderDataTable(canvas, nodes) {
     updateSelection(canvas);
 }
 
+/**
+ * Scrolls the atom table so that the first row of the residue sits just below the
+ * sticky header.
+ * @param {!Object} canvas Canvas object.
+ * @param {!Object} res Residue.
+ * @param {boolean} smooth Whether to scroll smoothly.
+ */
 function scrollTableToResidue(canvas, res, smooth) {
     const row = canvas.firstRowByResidue && canvas.firstRowByResidue.get(res.index);
     if (!row) return;
@@ -1087,7 +1406,11 @@ function scrollTableToResidue(canvas, res, smooth) {
     canvas.tableScroll.scrollTo({ top: row.offsetTop - headH, behavior: smooth ? 'smooth' : 'auto' });
 }
 
-// Markiert in der Sequenzleiste die Aminosäuren, deren Zeilen gerade sichtbar sind.
+/**
+ * Highlights in the sequence bar the residues whose table rows are currently
+ * visible (binary search over the row offsets).
+ * @param {!Object} canvas Canvas object.
+ */
 function updateTableView(canvas) {
     const rows = canvas.tableRows ? canvas.tableRows.nodes() : [];
     if (rows.length === 0) return;
@@ -1095,8 +1418,8 @@ function updateTableView(canvas) {
     const top = scroller.scrollTop + scroller.querySelector('thead').offsetHeight;
     const bottom = scroller.scrollTop + scroller.clientHeight;
 
-    // Zeilen sind nach offsetTop sortiert: erste Zeile, deren Unterkante unter `y` liegt
-    // (1 px Toleranz, damit eine Zeile, die genau an der Kante endet, nicht mitzählt).
+    // Rows are sorted by offsetTop: first row whose bottom edge lies below `y`
+    // (1 px tolerance so that a row ending exactly at the edge does not count).
     const firstBelow = y => {
         let lo = 0, hi = rows.length;
         while (lo < hi) {
@@ -1112,15 +1435,17 @@ function updateTableView(canvas) {
     markSequenceInView(canvas, c => c.res.index >= first && c.res.index <= last);
 }
 
-// ===== Statistiken =====
+// ===== Statistics (composition) =====
 const formatInt = v => v.toLocaleString(LOCALE);
-// Prozentwerte (0–100) im Format der Sprache, z. B. „12,5 %“ bzw. „12.5%“.
+// Percentages (0–100) in the page language's format, e.g. "12,5 %" or "12.5%".
 const formatPercent = v => (v / 100).toLocaleString(LOCALE, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const formatPercentTick = v => (v / 100).toLocaleString(LOCALE, { style: 'percent', maximumFractionDigits: 2 });
-// Elementsymbol in üblicher Schreibweise (CA → Ca); die Farbe kommt aus den Atom-Variablen.
+// Element symbol in the usual spelling (CA → Ca); the colour comes from the atom
+// CSS variables (as a var() reference, so it follows the theme without re-rendering).
 const elementSymbol = el => el ? el[0].toUpperCase() + el.slice(1).toLowerCase() : '?';
 const elementColor = el => `var(--atom-${(el || '').toUpperCase()}, var(--atom-default))`;
 
+/** @const {!Object<string, string>} Translated names of the 20 standard amino acids. */
 const AMINO_ACID_NAMES = {
     ALA: gettext('Alanin'), ARG: gettext('Arginin'), ASN: gettext('Asparagin'), ASP: gettext('Asparaginsäure'),
     CYS: gettext('Cystein'), GLN: gettext('Glutamin'), GLU: gettext('Glutaminsäure'), GLY: gettext('Glycin'),
@@ -1129,22 +1454,37 @@ const AMINO_ACID_NAMES = {
     THR: gettext('Threonin'), TRP: gettext('Tryptophan'), TYR: gettext('Tyrosin'), VAL: gettext('Valin'),
 };
 
-// Name einer Aminosäure; modifizierte (z. B. MSE) über ihre Ausgangs-Aminosäure, falls bekannt.
+/**
+ * Display name of an amino acid; modified ones (e.g. MSE) are named after their
+ * parent amino acid if known.
+ * @param {string} name Three-letter residue name.
+ * @param {?string=} parent Parent amino acid of a modified residue.
+ * @return {string} Translated name, "<parent> (modified)" or the raw name.
+ */
 function aminoAcidLabel(name, parent) {
     if (AMINO_ACID_NAMES[name]) return AMINO_ACID_NAMES[name];
     if (parent && AMINO_ACID_NAMES[parent]) return interpolate(gettext('%s (modifiziert)'), [AMINO_ACID_NAMES[parent]]);
     return name;
 }
-// Ausgangs-Aminosäure je Residuenname (nur modifizierte)
+// Parent amino acid per residue name (modified residues only)
 const parentsByName = residues => new Map(residues.filter(r => r.parent).map(r => [r.name, r.parent]));
 
+/** @const {!Object<string, string>} Translated labels of the edge types. */
 const BOND_TYPE_LABELS = {
     backbone: gettext('Backbone'), sidechain: gettext('Seitenkette'), peptide: gettext('Peptidbindung'),
     disulfide: gettext('Disulfidbrücke'), ligand: gettext('Ligand'),
 };
 
-// Tabelle "Anzahl und Anteil", standardmäßig absteigend nach Anzahl sortiert.
-// rows: [{ key, label, sub, count, color, dot }]; der Anteil bezieht sich auf `total`.
+/**
+ * Renders a "count and share" table with a bar per row; sorted by descending
+ * count by default.
+ * @param {string} tbodySelector Selector of the target `<tbody>`.
+ * @param {!Array<{key: string, label: string, sub: (string|undefined),
+ *     count: number, color: string, dot: (boolean|undefined)}>} rows Rows;
+ *     `dot` shows a colour dot before the label, `sub` a secondary text.
+ * @param {number} total Reference value for the share column.
+ * @param {{sort: (boolean|undefined)}=} options `sort: false` keeps the row order.
+ */
 function renderShareTable(tbodySelector, rows, total, { sort = true } = {}) {
     if (sort) rows.sort((a, b) => d3.descending(a.count, b.count) || d3.ascending(a.label, b.label));
     const maxCount = d3.max(rows, r => r.count) || 1;
@@ -1175,11 +1515,17 @@ function renderShareTable(tbodySelector, rows, total, { sort = true } = {}) {
             .style('background', r => r.color));
 }
 
+/**
+ * Renders the composition part of the statistics tab: counts, elements, amino
+ * acids and the per-chain breakdowns.
+ * @param {!Object} graphData Graph data.
+ */
 function renderStats(graphData) {
     if (d3.select('#stat-atoms').empty()) return;
     const { residues, nodes } = graphData;
 
-    // Nur Standard-Aminosäuren zählen, keine Liganden, Ionen oder Wasser (HETATM-Residuen).
+    // Count amino acids only (including modified ones with a known one-letter
+    // code), no ligands, ions or water.
     const aminoAcids = residues.filter(r => r.one_letter !== '?');
     d3.select('#stat-amino-acids').text(formatInt(aminoAcids.length));
     d3.select('#stat-atoms').text(formatInt(nodes.length));
@@ -1207,22 +1553,29 @@ function renderStats(graphData) {
 
 const chainLabel = c => interpolate(gettext('Kette %s'), [c.trim() || '–']);
 
-// Abschnitt "je Kette": Matrix (Zeilen × Ketten) mit Anteilen bezogen auf die jeweilige
-// Kette sowie die Verteilung der gezählten Objekte auf die Ketten (absolut und relativ).
-// items: gezählte Objekte (Atome bzw. Aminosäuren) mit `chain`; keyOf: Zeilenschlüssel;
-// rowLabel: Kopf der ersten Spalte; renderLabel(th, key): Zeilenbeschriftung.
+/**
+ * "Per chain" section: a matrix (rows × chains) with shares relative to each
+ * chain, plus the distribution of the counted objects over the chains (absolute
+ * and relative).
+ * @param {{matrix: string, share: string, shareTotal: string, items: !Array<!Object>,
+ *     keyOf: function(!Object): string, rowLabel: string,
+ *     renderLabel: function(!d3.Selection, string)}} config `matrix`/`share`/
+ *     `shareTotal`: selectors of the target elements; `items`: counted objects
+ *     (atoms or amino acids) with `chain`; `keyOf`: row key; `rowLabel`: header
+ *     of the first column; `renderLabel(th, key)`: renders a row label.
+ */
 function renderChainBreakdown({ matrix, share, shareTotal, items, keyOf, rowLabel, renderLabel }) {
     const table = d3.select(matrix);
     if (table.empty()) return;
 
-    const chains = [...new Set(items.map(n => n.chain))]; // Reihenfolge wie in der Datei
+    const chains = [...new Set(items.map(n => n.chain))]; // Order as in the file
     const chainTotals = d3.rollup(items, v => v.length, n => n.chain);
     const byChain = d3.rollup(items, v => v.length, n => n.chain, keyOf);
     const keys = d3.rollups(items, v => v.length, keyOf)
         .sort((a, b) => d3.descending(a[1], b[1]) || d3.ascending(a[0], b[0]))
         .map(([key]) => key);
 
-    // Tabelle 1: Anteile beziehen sich auf die jeweilige Kette.
+    // Table 1: shares are relative to the respective chain.
     table.selectAll('*').remove();
     const head = table.append('thead');
     const groupRow = head.append('tr');
@@ -1256,7 +1609,7 @@ function renderChainBreakdown({ matrix, share, shareTotal, items, keyOf, rowLabe
         total.append('td').attr('class', 'text-end').text(formatPercent(100 * sum / chainTotals.get(c)));
     });
 
-    // Tabelle 2: Verteilung auf die Ketten.
+    // Table 2: distribution over the chains.
     renderShareTable(share,
         chains.map(c => ({ key: c, label: chainLabel(c), count: chainTotals.get(c), color: 'var(--bs-primary)' })),
         items.length,
@@ -1264,6 +1617,11 @@ function renderChainBreakdown({ matrix, share, shareTotal, items, keyOf, rowLabe
     d3.select(shareTotal).text(formatInt(items.length));
 }
 
+/**
+ * Renders the per-chain breakdowns of elements and amino acids.
+ * @param {!Array<!Object>} nodes Graph nodes (atoms).
+ * @param {!Array<!Object>} aminoAcids Amino-acid residues.
+ */
 function renderChainStats(nodes, aminoAcids) {
     renderChainBreakdown({
         matrix: '#stat-elements-by-chain', share: '#stat-chain-atoms', shareTotal: '#stat-chain-atoms-total',
@@ -1275,7 +1633,7 @@ function renderChainStats(nodes, aminoAcids) {
             th.append('span').text(elementSymbol(el));
         },
     });
-    // Nur Ketten mit Aminosäuren erscheinen (reine Liganden-Ketten hätten keine Anteile).
+    // Only chains with amino acids appear (pure ligand chains would have no shares).
     renderChainBreakdown({
         matrix: '#stat-aa-by-chain', share: '#stat-chain-aa', shareTotal: '#stat-chain-aa-total',
         items: aminoAcids,
@@ -1289,10 +1647,14 @@ function renderChainStats(nodes, aminoAcids) {
     });
 }
 
-// ===== Legende =====
-// Elemente des angezeigten Models: zuerst die Hauptelemente der Proteine, dann alphabetisch.
+// ===== Legend =====
+// Elements of the displayed model: the main protein elements first, then alphabetically.
 const LEGEND_ORDER = ['C', 'N', 'O', 'S', 'H', 'P'];
 
+/**
+ * Renders the element colour legend of the graph tab (`#legend-elements`).
+ * @param {!Array<!Object>} nodes Graph nodes.
+ */
 function renderLegend(nodes) {
     const rank = el => { const i = LEGEND_ORDER.indexOf(el.toUpperCase()); return i < 0 ? LEGEND_ORDER.length : i; };
     const elements = [...new Set(nodes.map(n => n.element || ''))]
@@ -1311,22 +1673,33 @@ function renderLegend(nodes) {
         .call(item => item.select('.legend-label').text(elementSymbol));
 }
 
-// ===== Referenzwerte (Engh & Huber 2001 für das Backbone, CCP4 Monomer Library für Seitenketten) =====
-// ref = [Mittelwert, Standardabweichung, Gruppe] vom Server oder null (keine Referenz). Gruppe:
-// "backbone:N-CA:GLY" (Atome und Klasse) oder "LYS:CB-CG" (Seitenkette einer Aminosäure).
+// ===== Reference values (Engh & Huber 2001 for the backbone, CCP4 Monomer Library for side chains) =====
+// ref = [mean, standard deviation, group] from the server, or null (no reference).
+// Bonds carry it as `edge.ref`, bond angles get it from `node.angle_refs` of the
+// centre atom (see analyzeAngles). Group: "backbone:N-CA:GLY" (section, atoms and
+// class) or "LYS:CB-CG" (side chain of an amino acid, no class).
+/** @const {number} |Z| above which a value is flagged as a warning. */
 const Z_WARN = 2;
+/** @const {number} |Z| above which a value counts as an outlier. */
 const Z_OUTLIER = 4;
 const zOf = (value, ref) => ref ? (value - ref[0]) / ref[1] : null;
 const zScore = e => zOf(e.length, e.ref);
+// CSS class suffix (z-ok, z-warn, z-outlier, z-none) and colour key of a Z-score.
 const zClass = z => z === null ? 'none' : Math.abs(z) > Z_OUTLIER ? 'outlier' : Math.abs(z) > Z_WARN ? 'warn' : 'ok';
 const formatZ = z => z.toLocaleString(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: 'exceptZero' });
 const formatRmsz = v => v === null ? '–' : v.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// Klassen über die Peptidbindung: X steht für die jeweils andere Aminosäure
+// Residue classes of backbone references; classes across the peptide bond use X
+// for the respective other amino acid.
 const REFERENCE_CLASS_LABELS = {
     GLY: 'Gly', PRO: 'Pro', 'X-GLY': 'X–Gly', 'X-PRO': 'X–Pro', 'GLY-X': 'Gly–X', 'cis-X-PRO': 'X–Pro (cis)',
 };
-// Gruppe -> [Atome, Klasse, Abschnitt], z. B. "backbone:C-N:X-PRO" -> ["C–N", "X–Pro", "backbone"]
+/**
+ * Splits a reference group into display parts.
+ * @param {string} group E.g. "backbone:C-N:X-PRO".
+ * @return {!Array<string>} [atoms, class label, section], e.g.
+ *     ["C–N", "X–Pro", "backbone"]; the class label is '' if there is none.
+ */
 function referenceGroupLabel(group) {
     const [section, atoms, cls] = group.split(':');
     const label = !cls ? '' : cls === 'other' ? gettext('übrige') : REFERENCE_CLASS_LABELS[cls] || cls;
@@ -1335,9 +1708,15 @@ function referenceGroupLabel(group) {
 const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1);
 const referenceSectionLabel = (section, parents) =>
     section === 'backbone' ? capitalize(gettext('Backbone')) : aminoAcidLabel(section, parents.get(section));
+// Source note below reference tables; `sources` = structure-info's reference_sources.
 const referenceSourceText = sources => sources
     ? interpolate(gettext('Referenzwerte: %(backbone)s (Backbone), %(sidechain)s (Seitenketten)'), sources, true) : '';
 
+/**
+ * Tooltip line describing a bond's reference value and Z-score.
+ * @param {!Object} e Edge.
+ * @return {string} Translated text.
+ */
 function referenceText(e) {
     if (!e.ref) return gettext('Ohne Referenzwert');
     return interpolate(gettext('Referenz %(ref)s ± %(sigma)s Å · Z = %(z)s'), {
@@ -1345,8 +1724,15 @@ function referenceText(e) {
     }, true);
 }
 
-// Bewertung von Bindungen oder Winkeln ({ value, ref, z, atoms }): gesamt, je Gruppe, je Abschnitt
-// (Backbone zuerst, dann die Seitenketten je Aminosäure) und Ausreißer nach |Z| absteigend.
+/**
+ * Rates bonds or angles against their reference values: overall, per group, per
+ * section (backbone first, then the side chains per amino acid) and the outliers
+ * sorted by descending |Z|. RMSZ = root mean square of the Z-scores.
+ * @param {!Array<{value: number, ref: ?Array, z: ?number, atoms: !Array}>} items
+ *     Bonds or angles.
+ * @return {{total: number, rated: number, rmsz: ?number, groups: !Array<!Object>,
+ *     sections: !Array<!Object>, outliers: !Array<!Object>}} The rating.
+ */
 function rateReferences(items) {
     const rated = items.filter(i => i.z !== null);
     const rmsz = list => list.length ? Math.sqrt(d3.mean(list, i => i.z * i.z)) : null;
@@ -1357,7 +1743,7 @@ function rateReferences(items) {
             mean: d3.mean(list, i => i.value), rmsz: rmsz(list), outliers: outliersOf(list),
         }))
         .sort((a, b) => d3.descending(a.count, b.count) || d3.ascending(a.group, b.group));
-    // Im Abschnitt stehen die Klassen derselben Atome beieinander (Atome nach Gesamtanzahl)
+    // Within a section, classes of the same atoms stay together (atoms ordered by total count)
     const atomsOf = g => g.group.split(':')[1];
     const sectionGroups = section => {
         const list = groups.filter(g => g.section === section);
@@ -1378,6 +1764,11 @@ function rateReferences(items) {
     };
 }
 
+/**
+ * Reference rating of all bonds of the graph.
+ * @param {!Object} graphData Graph data.
+ * @return {!Object} Result of rateReferences.
+ */
 function referenceStats(graphData) {
     const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
     return rateReferences(graphData.edges
@@ -1385,7 +1776,8 @@ function referenceStats(graphData) {
         .map(e => ({ ...e, value: e.length, atoms: [nodeById.get(e.source), nodeById.get(e.target)], z: zScore(e) })));
 }
 
-// Beschriftungen und Formate für Bindungslängen bzw. Bindungswinkel
+// Labels and formatters for bond lengths ('bond') or bond angles ('angle'); lets
+// the reference tables (tab and PDF) share one implementation.
 const referenceKind = kind => kind === 'angle' ? {
     item: gettext('Winkel'), rated: gettext('Bewertete Winkel'), value: gettext('Winkel (°)'),
     reference: gettext('Referenz (°)'), mean: gettext('Durchschnitt (°)'), delta: gettext('Abw. (°)'),
@@ -1397,10 +1789,18 @@ const referenceKind = kind => kind === 'angle' ? {
     format: formatLength, formatDelta, describe: describeBond,
 };
 
+// Expanded sections ("<prefix>|<section>"); kept across re-renders.
 const expandedReferenceSections = new Set();
 
-// Kennzahlen, Tabelle je Abschnitt (aufklappbar bis zur Gruppe) und Ausreißer in die
-// Elemente #<prefix>-facts, -groups, -outliers(-block, -title).
+/**
+ * Renders a reference rating: key figures, a table per section (expandable to
+ * the groups) and the outliers, into the elements #<prefix>-facts, -groups,
+ * -outliers, -outliers-block and -outliers-title.
+ * @param {string} prefix Element id prefix ('stat-ref' or 'angle-ref').
+ * @param {!Object} s Result of rateReferences.
+ * @param {string} kind 'bond' or 'angle' (see referenceKind).
+ * @param {!Map<string, string>} parents Parent amino acid by residue name.
+ */
 function renderReferenceStats(prefix, s, kind, parents) {
     const facts = d3.select(`#${prefix}-facts`);
     if (facts.empty()) return;
@@ -1474,7 +1874,7 @@ function renderReferenceStats(prefix, s, kind, parents) {
     rmszCell(total, s.rmsz);
     outlierCell(total, s.outliers.length);
 
-    // Ausreißer einzeln, nach |Z| absteigend
+    // Individual outliers, by descending |Z|
     d3.select(`#${prefix}-outliers-title`).text(interpolate(gettext('Ausreißer (|Z| > %s)'), [Z_OUTLIER]));
     const list = d3.select(`#${prefix}-outliers`);
     list.selectAll('*').remove();
@@ -1495,7 +1895,8 @@ function renderReferenceStats(prefix, s, kind, parents) {
     });
 }
 
-// Bewertung für den JSON-Export; Bindungen und Winkel gleich aufgebaut.
+// Reference rating for the JSON/PDF export; same structure for bonds and angles.
+// `digits` = decimals of the values (3 for Å, 1 for °).
 const referenceExport = (s, unit, digits) => ({
     unit,
     sources: structureInfo()?.reference_sources ?? null,
@@ -1503,7 +1904,7 @@ const referenceExport = (s, unit, digits) => ({
     rated: s.rated,
     rmsz: roundTo(s.rmsz, 3),
     outlier_count: s.outliers.length,
-    // section: "backbone" oder Residuenname der Seitenkette
+    // section: "backbone" or the residue name of the side chain
     sections: s.sections.map(sec => ({
         section: sec.section, count: sec.count, rmsz: roundTo(sec.rmsz, 3), outliers: sec.outliers,
         groups: sec.groups.map(g => ({
@@ -1518,25 +1919,41 @@ const referenceExport = (s, unit, digits) => ({
     })),
 });
 
-// ===== Winkel: Bindungswinkel, Torsionswinkel φ/ψ und ω =====
-// Berechnet im Browser aus den Atomkoordinaten des angezeigten Models (bzw. Durchschnitts).
-const CIS_MAX_OMEGA = 30;     // |ω| < 30°: cis-Peptidbindung
-const TRANS_MIN_OMEGA = 150;  // |ω| ≥ 150°: trans; dazwischen verdreht
+// ===== Angles: bond angles, torsion angles φ/ψ and ω =====
+// Bond angles and ω are computed in the browser from the atom coordinates of the
+// displayed model (or the model average); φ/ψ and their Ramachandran evaluation
+// come precomputed from the server (`residue.rama`).
+const CIS_MAX_OMEGA = 30;     // |ω| < 30°: cis peptide bond
+const TRANS_MIN_OMEGA = 150;  // |ω| ≥ 150°: trans; in between: twisted
 const BACKBONE_ORDER = ['N', 'CA', 'C', 'O', 'OXT'];
 const DEG = 180 / Math.PI;
 
+// Minimal 3D vector helpers on atoms ({x, y, z}) and arrays ([x, y, z]).
 const vec = (a, b) => [b.x - a.x, b.y - a.y, b.z - a.z];
 const dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
 const cross = (u, v) => [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
 
-// Winkel a–b–c in Grad (b ist das mittlere Atom).
+/**
+ * Bond angle a–b–c.
+ * @param {{x: number, y: number, z: number}} a First atom.
+ * @param {{x: number, y: number, z: number}} b Centre atom.
+ * @param {{x: number, y: number, z: number}} c Third atom.
+ * @return {number} Angle in degrees (0 … 180).
+ */
 function bondAngle(a, b, c) {
     const u = vec(b, a), v = vec(b, c);
     const cos = dot(u, v) / Math.sqrt(dot(u, u) * dot(v, v));
     return Math.acos(Math.max(-1, Math.min(1, cos))) * DEG;
 }
 
-// Torsionswinkel p0–p1–p2–p3 in Grad (−180 … 180, IUPAC-Konvention).
+/**
+ * Torsion (dihedral) angle p0–p1–p2–p3 around the axis p1–p2.
+ * @param {{x: number, y: number, z: number}} p0 First atom.
+ * @param {{x: number, y: number, z: number}} p1 Second atom.
+ * @param {{x: number, y: number, z: number}} p2 Third atom.
+ * @param {{x: number, y: number, z: number}} p3 Fourth atom.
+ * @return {number} Angle in degrees (−180 … 180, IUPAC convention).
+ */
 function dihedral(p0, p1, p2, p3) {
     const b0 = vec(p1, p0), b2 = vec(p2, p3);
     let b1 = vec(p1, p2);
@@ -1547,11 +1964,16 @@ function dihedral(p0, p1, p2, p3) {
     return Math.atan2(dot(cross(b1, v), w), dot(v, w)) * DEG;
 }
 
-// Auf 0,1° gerundet; `|| 0` macht aus −0 eine 0 (sonst "−0,0°")
+// Rounded to 0.1°; `|| 0` turns −0 into 0 (otherwise "−0.0°")
 const roundAngle = v => Math.round(v * 10) / 10 || 0;
 const formatAngle = v => `${roundAngle(v).toLocaleString(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}°`;
 
-// Klasse im Ramachandran-Plot; modifizierte Aminosäuren zählen wie ihre Ausgangs-Aminosäure.
+/**
+ * Colour class in the Ramachandran plot; modified amino acids count like their
+ * parent amino acid. (Not to be confused with the Top8000 category `rama.type`.)
+ * @param {!Object} res Residue.
+ * @return {string} 'gly', 'pro' or 'general'.
+ */
 function ramaClass(res) {
     const name = res.parent || res.name;
     return name === 'GLY' ? 'gly' : name === 'PRO' ? 'pro' : 'general';
@@ -1559,7 +1981,7 @@ function ramaClass(res) {
 const RAMA_CLASSES = ['general', 'gly', 'pro'];
 const ramaClassLabel = cls => ({ general: gettext('Übrige Aminosäuren'), gly: gettext('Glycin'), pro: gettext('Prolin') })[cls];
 
-// Bewertung vom Server (Top8000 wie MolProbity): Kategorie und Bereich je Aminosäure
+// Evaluation from the server (Top8000 as in MolProbity): category and region per amino acid
 const RAMA_TYPES = ['general', 'glycine', 'cis-proline', 'trans-proline', 'pre-proline', 'ile-val'];
 const ramaTypeLabel = type => ({
     general: gettext('Allgemein'), glycine: gettext('Glycin'), 'cis-proline': gettext('cis-Prolin'),
@@ -1569,11 +1991,25 @@ const RAMA_REGIONS = ['favored', 'allowed', 'outlier'];
 const ramaRegionLabel = region => ({
     favored: gettext('Bevorzugt'), allowed: gettext('Erlaubt'), outlier: gettext('Ausreißer'),
 })[region];
-// Angezeigte Kategorie im Plot ('' = alle) und die Bereiche je Kategorie (bei Bedarf geladen)
+/**
+ * Ramachandran view state: category shown in the plot ('' = all) and the region
+ * grids per category (loaded on demand by loadRamaRegions).
+ */
 const ramaView = { type: '', regions: null };
 
-// φ/ψ je Aminosäure, ω je Peptidbindung und alle Bindungswinkel. Torsionen über eine
-// Peptidbindung gibt es nur, wo der Server eine Bindung erkannt hat (keine Kettenlücke).
+/**
+ * Collects φ/ψ per amino acid (from the server), ω per peptide bond and all bond
+ * angles. Torsions across a peptide bond exist only where the server detected a
+ * bond (no chain break).
+ * @param {!Object} graphData Graph data.
+ * @return {{ramachandran: !Array<!Object>, omegas: !Array<!Object>,
+ *     bondAngles: !Array<!Object>, angleTypes: !Array<!Object>,
+ *     byCenter: !Map<string, !Array<!Object>>}} `ramachandran`: points
+ *     {res, phi, psi, cls, type, region}; `omegas`: {prev, res, omega, kind} with
+ *     kind 'cis'/'twisted'/'trans'; `bondAngles`: {atoms, type, value, ref, z};
+ *     `angleTypes`: bond angles grouped by type with statistics; `byCenter`:
+ *     bond angles by centre atom id.
+ */
 function analyzeAngles(graphData) {
     const nodes = new Map(graphData.nodes.map(n => [n.id, n]));
     const peptides = new Set(graphData.edges.filter(e => e.type === 'peptide').map(edgeKey));
@@ -1584,7 +2020,7 @@ function analyzeAngles(graphData) {
     };
 
     const residues = graphData.residues;
-    // φ/ψ, Kategorie und Bereich berechnet der Server (evaluate_ramachandran)
+    // φ/ψ, category and region are computed by the server (utils.evaluate_ramachandran)
     const ramachandran = residues.filter(res => res.rama).map(res => ({
         res, phi: res.rama.phi, psi: res.rama.psi, cls: ramaClass(res), type: res.rama.type, region: res.rama.region,
     }));
@@ -1601,9 +2037,11 @@ function analyzeAngles(graphData) {
         }
     });
 
-    // Bindungswinkel: je Atom alle Paare seiner Bindungspartner. Reihenfolge der Endatome:
-    // früheres Residuum zuerst (C–N–CA über die Peptidbindung), im Residuum nach Rückgrat
-    // (N, CA, C, O); der Partner einer Disulfidbrücke steht immer am Ende (CB–SG–SG).
+    // Bond angles: per atom all pairs of its bonding partners. Order of the end
+    // atoms: earlier residue first (C–N–CA across the peptide bond), within a
+    // residue by backbone order (N, CA, C, O, OXT), then by name; the partner of a
+    // disulfide bridge always comes last (CB–SG–SG). The reference is looked up in
+    // the centre atom's `angle_refs` by the sorted end-atom names.
     const neighbors = new Map();
     const disulfide = new Set();
     graphData.edges.forEach(e => {
@@ -1646,12 +2084,22 @@ function analyzeAngles(graphData) {
     return { ramachandran, omegas, bondAngles, angleTypes, byCenter };
 }
 
-// Ramachandran-Plot in `svg` (Tab und Bild-Export). Farben kommen über CSS-Klassen
-// (.rama-general, .rama-gly, .rama-pro). Liefert die Auswahl der Punkte.
 const RAMA_SIZE = 480;
-const RAMA_MAJOR_STEP = 60; // Hauptgitter und Achsenbeschriftung (°)
-const RAMA_MINOR_STEP = 20; // Hilfsgitter (°)
+const RAMA_MAJOR_STEP = 60; // Major grid and axis labels (°)
+const RAMA_MINOR_STEP = 20; // Minor grid (°)
 const RAMA_MARGIN = { top: 12, right: 14, bottom: 46, left: 56 };
+
+/**
+ * Draws a Ramachandran plot into `svg` (used by the tab and the image export).
+ * Colours come from CSS classes (.rama-general, .rama-gly, .rama-pro, ...). If a
+ * category is selected and its regions are loaded, the favoured/allowed regions
+ * are drawn as contours and only points of that category are shown.
+ * @param {!d3.Selection} svg Target SVG selection.
+ * @param {!Array<!Object>} points Ramachandran points from analyzeAngles.
+ * @param {number} size Width and height of the plot (px).
+ * @param {{type: string, regions: ?Object}=} view View state (default ramaView).
+ * @return {!d3.Selection} Selection of the point circles.
+ */
 function drawRamachandran(svg, points, size, view = ramaView) {
     const m = RAMA_MARGIN;
     const x = d3.scaleLinear().domain([-180, 180]).range([m.left, size - m.right]);
@@ -1659,7 +2107,10 @@ function drawRamachandran(svg, points, size, view = ramaView) {
     const ticks = d3.range(-180, 181, RAMA_MAJOR_STEP);
     const degrees = d => `${d}°`;
 
-    // Erlaubter und bevorzugter Bereich der gewählten Kategorie (Raster 180 × 180 zu 2°)
+    // Allowed and favoured region of the selected category: a string with one digit
+    // per grid cell (`bins` × `bins`, currently 180 × 180 at 2°, index φ-bin * bins +
+    // ψ-bin; 0 = outlier, 1 = allowed, 2 = favoured), transposed into the row-major
+    // layout d3.contours expects and projected into plot coordinates.
     const regions = view.type && view.regions?.regions[view.type];
     if (regions) {
         const n = view.regions.bins;
@@ -1677,7 +2128,7 @@ function drawRamachandran(svg, points, size, view = ramaView) {
         points = points.filter(p => p.type === view.type);
     }
 
-    // Hilfsgitter (feiner als das Hauptgitter), unter allem anderen
+    // Minor grid (finer than the major grid), below everything else
     const minor = d3.range(-180, 181, RAMA_MINOR_STEP).filter(v => v % RAMA_MAJOR_STEP !== 0);
     const minorGrid = svg.append('g').attr('class', 'rama-minor');
     minorGrid.selectAll('line.v').data(minor).join('line').attr('class', 'v')
@@ -1700,7 +2151,7 @@ function drawRamachandran(svg, points, size, view = ramaView) {
     svg.append('text').attr('class', 'hist-label').attr('text-anchor', 'middle')
         .attr('transform', `translate(16,${(y(-180) + y(180)) / 2}) rotate(-90)`).text('ψ');
 
-    // Glycin und Prolin über den übrigen zeichnen, Ausreißer zuoberst, damit sie sichtbar bleiben
+    // Draw glycine and proline above the others and outliers on top so that they stay visible
     const order = p => RAMA_CLASSES.indexOf(p.cls) + (p.region === 'outlier' ? RAMA_CLASSES.length : 0);
     return svg.append('g').selectAll('circle')
         .data([...points].sort((a, b) => order(a) - order(b)))
@@ -1709,7 +2160,11 @@ function drawRamachandran(svg, points, size, view = ramaView) {
         .attr('cx', p => x(p.phi)).attr('cy', p => y(p.psi)).attr('r', p => p.region === 'outlier' ? 4.2 : 3.2);
 }
 
-// Bereiche je Kategorie einmalig laden (statische Datei, URL im Template)
+/**
+ * Loads the region grids per category once (static file
+ * `data/rama8000_regions.json`, URL in `#angles-export[data-rama-regions]`).
+ * @return {!Promise<!Object>} `{source, license, bins, regions: {type: string}}`.
+ */
 async function loadRamaRegions() {
     if (ramaView.regions) return ramaView.regions;
     const src = document.getElementById('angles-export')?.dataset.ramaRegions;
@@ -1717,7 +2172,13 @@ async function loadRamaRegions() {
     return ramaView.regions;
 }
 
-// Plot und Legende im Tab "Ramachandran"
+/**
+ * Renders plot and legend in the Ramachandran tab. Clicking a point selects the
+ * residue (jumpToResidue). Stores `ramaAngles` and `ramaPoints` on the canvas so
+ * that the plot can be redrawn when the category filter changes.
+ * @param {!Object} canvas Canvas object.
+ * @param {!Object} angles Result of analyzeAngles.
+ */
 function renderRamachandranPlot(canvas, angles) {
     const container = d3.select('#angle-rama');
     if (container.empty()) return;
@@ -1735,7 +2196,7 @@ function renderRamachandranPlot(canvas, angles) {
         `${p.res.name} ${p.res.pos} (${chainLabel(p.res.chain)})\nφ = ${formatAngle(p.phi)}, ψ = ${formatAngle(p.psi)}`
         + `\n${ramaTypeLabel(p.type)} · ${ramaRegionLabel(p.region)}`);
 
-    // Legende: Klassen (Farbe der Punkte), Ausreißer und bei gewählter Kategorie deren Bereiche
+    // Legend: classes (point colours), outliers and, if a category is selected, its regions
     const counts = d3.rollup(shown, v => v.length, p => p.cls);
     const entries = [
         ...RAMA_CLASSES.filter(cls => !ramaView.type || counts.get(cls)).map(cls => ({
@@ -1751,7 +2212,7 @@ function renderRamachandranPlot(canvas, angles) {
     d3.select('#angle-rama-legend').selectAll('div')
         .data(entries)
         .join(enter => {
-            // Symbol an der ersten Textzeile ausrichten (lange Bezeichnungen brechen in der Leiste um)
+            // Align the symbol with the first text line (long labels wrap in the sidebar)
             const div = enter.append('div').attr('class', 'd-flex align-items-start gap-2');
             div.append('span');
             div.append('span').attr('class', 'rama-legend-label');
@@ -1762,7 +2223,13 @@ function renderRamachandranPlot(canvas, angles) {
     updateSelection(canvas);
 }
 
-// Bewertung je Kategorie, Gesamtwerte und Ausreißer für Statistik und Export
+/**
+ * Ramachandran evaluation per category, totals and outliers (for the tab and the export).
+ * @param {!Array<!Object>} points Ramachandran points.
+ * @return {{total: number, favored: number, allowed: number, outlier: number,
+ *     byType: !Array<!Object>, outliers: !Array<!Object>}} Counts per region,
+ *     per category (only non-empty ones) and the outlier points.
+ */
 function ramachandranSummary(points) {
     const countRegions = list => Object.fromEntries(RAMA_REGIONS.map(r => [r, list.filter(p => p.region === r).length]));
     return {
@@ -1776,6 +2243,10 @@ function ramachandranSummary(points) {
     };
 }
 
+/**
+ * Renders the Ramachandran key figures, the table per category and the outliers.
+ * @param {!Object} angles Result of analyzeAngles.
+ */
 function renderRamachandranStats(angles) {
     const facts = d3.select('#rama-facts');
     if (facts.empty()) return;
@@ -1826,6 +2297,12 @@ function renderRamachandranStats(angles) {
     rows.append('td').attr('class', 'text-end').text(p => formatAngle(p.psi));
 }
 
+/**
+ * Renders the whole Ramachandran tab: plot, Ramachandran statistics, ω
+ * (cis/trans/twisted), bond-angle references and bond-angle groups.
+ * @param {!Object} canvas Canvas object.
+ * @param {!Object} graphData Graph data.
+ */
 function renderAngles(canvas, graphData) {
     if (d3.select('#angle-rama').empty()) return;
     const angles = analyzeAngles(graphData);
@@ -1854,7 +2331,8 @@ function renderAngles(canvas, graphData) {
 
     const omegaTable = d3.select('#angle-omega');
     omegaTable.selectAll('*').remove();
-    // Liste nur, wenn es Peptidbindungen gibt, die nicht trans sind
+    // List only if there are peptide bonds that are not trans; cis bonds not
+    // preceding a proline are highlighted as unusual.
     const unusual = angles.omegas.filter(o => o.kind !== 'trans');
     d3.select('#angle-omega-block').property('hidden', !unusual.length);
     if (unusual.length) {
@@ -1883,7 +2361,12 @@ const formatDegrees = v => v === null || v === undefined ? '–'
 const formatDegreesDelta = v => v.toLocaleString(LOCALE,
     { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: 'exceptZero' });
 
-// Atome eines Bindungswinkels für die Tabellen (wie describeBond, mit drei Atomen).
+/**
+ * Describes the atoms of a bond angle for tables (like describeBond, with three
+ * atoms); repeated chains, positions and residues are listed only once.
+ * @param {!Array<!Object>} atoms The three atoms (graph nodes).
+ * @return {{chain: string, pos: string, serials: string, residues: string}} Texts.
+ */
 function describeAngle(atoms) {
     const pos = atom => `${atom.residue_seq}${atom.i_code || ''}`;
     const unique = values => [...new Set(values)];
@@ -1895,8 +2378,14 @@ function describeAngle(atoms) {
     };
 }
 
-// Bindungswinkel je Typ; jede Zeile klappt die einzelnen Winkel auf (wie bei den Bindungen).
+// Expanded angle types; kept across re-renders.
 const expandedAngleGroups = new Set();
+/**
+ * Renders bond angles per type (`#angle-bond-types`); each row expands to the
+ * individual angles (like the bond groups). The detail list is built lazily on
+ * first expansion.
+ * @param {!Object} angles Result of analyzeAngles.
+ */
 function renderAngleGroups(angles) {
     const table = d3.select('#angle-bond-types');
     if (table.empty()) return;
@@ -1946,7 +2435,12 @@ function renderAngleGroups(angles) {
     total.append('td').attr('colspan', 4);
 }
 
-// Einzelne Winkel eines Typs in Dateireihenfolge; kleinster und größter sind markiert.
+/**
+ * Individual angles of one type, ordered by the residue of the centre atom;
+ * smallest and largest are marked.
+ * @param {!d3.Selection} cell Table cell to render into.
+ * @param {!Object} group Angle type from analyzeAngles().angleTypes.
+ */
 function renderAngleList(cell, group) {
     const list = cell.append('table').attr('class', 'table table-sm bond-list');
     list.append('thead').append('tr').selectAll('th')
@@ -1973,7 +2467,12 @@ const omegaKindLabel = o => o.kind === 'cis'
     ? (ramaClass(o.res) === 'pro' ? gettext('cis (vor Prolin)') : gettext('cis'))
     : gettext('verdreht');
 
-// Winkel für den JSON-/PDF-Export
+/**
+ * Angle data for the JSON/PDF export (the `angles` part of buildStatsExport).
+ * @param {!Object} graphData Graph data.
+ * @return {!Object} Ramachandran points and evaluation, ω summary, bond angles
+ *     per type and their reference rating.
+ */
 function anglesExport(graphData) {
     const angles = analyzeAngles(graphData);
     const round1 = v => v === null ? null : roundTo(v, 1);
@@ -1984,7 +2483,7 @@ function anglesExport(graphData) {
             ...residue(p.res), class: p.cls, phi: round1(p.phi), psi: round1(p.psi),
             type: p.type, value: p.res.rama.value, region: p.region,
         })),
-        // Bereiche nach Top8000 wie MolProbity; type: general, glycine, cis-proline, trans-proline, pre-proline, ile-val
+        // Regions after Top8000 as in MolProbity; type: general, glycine, cis-proline, trans-proline, pre-proline, ile-val
         ramachandran_evaluation: (s => ({
             source: structureInfo()?.ramachandran_source ?? null,
             total: s.total, favored: s.favored, allowed: s.allowed, outliers: s.outlier,
@@ -2004,14 +2503,15 @@ function anglesExport(graphData) {
         bond_angles: angles.angleTypes.map(t => ({
             angle: t.type, count: t.count, mean: round1(t.mean), sd: round1(t.sd), min: round1(t.min), max: round1(t.max),
         })),
-        // Abweichung von Referenzwerten, Z = (Winkel − Referenz) / Standardabweichung
+        // Deviation from reference values, Z = (angle − reference) / standard deviation
         reference: referenceExport(rateReferences(angles.bondAngles), '°', 1),
     };
 }
 
-// Ramachandran-Plot als eigenständige SVG-Datei (feste Farben, weißer Hintergrund).
+// Ramachandran plot as a standalone SVG file (fixed colours, white background).
 const RAMA_EXPORT_SIZE = { width: 800, height: 800 };
-// Als Funktion, da HIST_EXPORT_STYLE weiter unten in der Datei definiert ist
+// A function because HIST_EXPORT_STYLE is defined further down in the file
+// (accessing the const at load time would throw).
 const ramaExportStyle = () => HIST_EXPORT_STYLE + `
     .rama-frame { stroke: #adb5bd; }
     .rama-minor line { stroke: rgba(0, 0, 0, 0.045); }
@@ -2024,6 +2524,11 @@ const ramaExportStyle = () => HIST_EXPORT_STYLE + `
     .rama-region-allowed { fill: #e7f1fb; }
     .rama-region-favored { fill: #c5dcf3; }
 `;
+/**
+ * Serialises the Ramachandran plot (current category filter applies) as SVG.
+ * @param {!Object} graphData Graph data.
+ * @return {string} SVG markup.
+ */
 function ramachandranSvgText(graphData) {
     const { width, height } = RAMA_EXPORT_SIZE;
     const svg = d3.create('svg')
@@ -2034,13 +2539,30 @@ function ramachandranSvgText(graphData) {
     return new XMLSerializer().serializeToString(svg.node());
 }
 
+/**
+ * Ramachandran plot as a downloadable image.
+ * @param {!Object} graphData Graph data.
+ * @param {string} format 'svg', 'png' or 'jpeg'.
+ * @return {!Promise<!Blob>} The image.
+ */
 async function ramachandranBlob(graphData, format) {
     const svgText = ramachandranSvgText(graphData);
     if (format === 'svg') return new Blob([svgText], { type: 'image/svg+xml' });
     return rasterizeSvg(svgText, `image/${format}`, RAMA_EXPORT_SIZE);
 }
 
-// Ramachandran-Plot als Vektorgrafik im PDF (Achsen, Raster, Punkte je Klasse).
+/**
+ * Draws the Ramachandran plot as vector graphics into the PDF (axes, grid,
+ * points per class, outliers circled).
+ * @param {!Object} doc jsPDF document.
+ * @param {!Array<!Object>} points Exported Ramachandran points (`class`, `phi`,
+ *     `psi`, `region`).
+ * @param {number} left Left edge (mm).
+ * @param {number} top Top edge (mm).
+ * @param {number} size Width and height (mm).
+ * @param {!Object<string, !Array<number>>} colors RGB colours: MUTED, LINE,
+ *     OUTLIER and one per Ramachandran class.
+ */
 function drawPdfRamachandran(doc, points, left, top, size, colors) {
     const plotL = left + 12, plotR = left + size, plotT = top + 2, plotB = top + size - 10;
     const x = d3.scaleLinear().domain([-180, 180]).range([plotL, plotR]);
@@ -2071,7 +2593,7 @@ function drawPdfRamachandran(doc, points, left, top, size, colors) {
     doc.text(pdfText('ψ'), left + 1, (plotT + plotB) / 2, { angle: 90 });
 }
 
-// ===== Abschnitt "Bindungen" =====
+// ===== Statistics: bonds =====
 const formatLength = v => v === null || v === undefined ? '–'
     : v.toLocaleString(LOCALE, { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 const formatDelta = v => v.toLocaleString(LOCALE,
@@ -2079,8 +2601,13 @@ const formatDelta = v => v.toLocaleString(LOCALE,
 const chainId = c => c.trim() || '–';
 const bondKey = (source, target) => `${source}|${target}`;
 
-// Beschriftung einer Bindung aus ihren beiden Atomen (Graph-Knoten oder Atome aus dem Ensemble).
-// Liegen beide Atome in derselben Aminosäure, werden Position und Aminosäure nur einmal genannt.
+/**
+ * Describes a bond by its two atoms (graph nodes or atoms from the ensemble). If
+ * both atoms belong to the same residue, position and residue are named only once.
+ * @param {!Array<!Object>} atoms The two atoms.
+ * @return {{atoms: string, chain: string, pos: string, serials: string,
+ *     residues: string}} Texts for the table columns.
+ */
 function describeBond([a, b]) {
     const pos = atom => `${atom.residue_seq}${atom.i_code || ''}`;
     const same = a.chain === b.chain && pos(a) === pos(b);
@@ -2093,7 +2620,13 @@ function describeBond([a, b]) {
     };
 }
 
-// Vergleichswert mit der Abweichung der Bindung davon (Länge − Wert); `title` erklärt die Abweichung.
+/**
+ * Appends a comparison value and the bond's deviation from it (length − value).
+ * @param {!d3.Selection} td Target cell.
+ * @param {?number|undefined} value Comparison value (Å), e.g. ensemble mean.
+ * @param {number} length Bond length (Å).
+ * @param {string} title Tooltip explaining the deviation.
+ */
 function appendComparison(td, value, length, title) {
     td.append('span').text(formatLength(value));
     if (value === null || value === undefined) return;
@@ -2102,12 +2635,17 @@ function appendComparison(td, value, length, title) {
         .text(`(${formatDelta(length - value)})`);
 }
 
-// Model einer Extrem-Bindung aus dem Ensemble; Dateien ohne MODEL-Records enthalten genau
-// ein (implizites) Model.
+// Model label of an extreme bond from the ensemble; files without MODEL records
+// contain exactly one (implicit) model, reported as model 1.
 const ensembleModelLabel = b => b && interpolate(gettext('Model %s'), [b.model ?? 1]);
 
-// Kürzeste und längste Bindung über alle Models und im ausgewählten Model, jeweils
-// verglichen mit Durchschnitt und Median dieser Bindung über alle Models.
+/**
+ * Renders the shortest and longest bond over all models and in the selected
+ * model, each compared with the mean and median of that bond over all models.
+ * @param {!Object} graphData Graph data of the selected model.
+ * @param {!Object} ensemble Bond ensemble (`bonds`, `min`, `max`, `models`).
+ * @param {string} modelLabel Label of the selected model.
+ */
 function renderBondExtremes(graphData, ensemble, modelLabel) {
     const table = d3.select('#stat-bond-extremes');
     table.selectAll('*').remove();
@@ -2160,11 +2698,17 @@ function renderBondExtremes(graphData, ensemble, modelLabel) {
     });
 }
 
-// Aufgeklappte Gruppen bleiben beim Model-Wechsel offen.
+// Expanded groups stay open when the model changes.
 const expandedBondGroups = new Set();
+// Toggle icon of expandable table rows (rotated via CSS when expanded).
 const CHEVRON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708"/></svg>';
 
-// Kennzahlen einer Menge von Bindungen.
+/**
+ * Key figures of a set of bonds.
+ * @param {!Array<!Object>} bonds Bonds with `length` and `atoms`.
+ * @return {{chains: string, count: number, mean: number, median: number,
+ *     min: number, max: number, delta: number}} Summary (lengths in Å).
+ */
 function bondSummary(bonds) {
     const min = d3.min(bonds, b => b.length);
     const max = d3.max(bonds, b => b.length);
@@ -2177,8 +2721,12 @@ function bondSummary(bonds) {
     };
 }
 
-// Alle Bindungen des ausgewählten Models, gruppiert nach den beteiligten Atomen (z. B. C–N,
-// CB–CG). Eine aufgeklappte Gruppe listet jede einzelne Bindung.
+/**
+ * Renders all bonds of the selected model grouped by the atoms involved (e.g. C–N,
+ * CB–CG). An expanded group lists every single bond (built lazily on first
+ * expansion).
+ * @param {!Object} graphData Graph data.
+ */
 function renderBondGroups(graphData) {
     const table = d3.select('#stat-bond-groups');
     table.selectAll('*').remove();
@@ -2242,7 +2790,11 @@ function renderBondGroups(graphData) {
     if (bonds.length) summaryCells(total, bondSummary(bonds));
 }
 
-// Einzelne Bindungen einer Gruppe in Dateireihenfolge; kürzeste und längste sind markiert.
+/**
+ * Individual bonds of a group in file order; shortest and longest are marked.
+ * @param {!d3.Selection} cell Table cell to render into.
+ * @param {!Object} group Group with `items`, `mean`, `min`, `max`.
+ */
 function renderBondList(cell, group) {
     const list = cell.append('table').attr('class', 'table table-sm bond-list');
     list.append('thead').append('tr').selectAll('th')
@@ -2264,15 +2816,21 @@ function renderBondList(cell, group) {
     });
 }
 
-// ===== Histogramm der Bindungslängen =====
+// ===== Histogram of bond lengths =====
 const HIST_HEIGHT = 260;
 const HIST_MARGIN = { top: 16, right: 16, bottom: 44, left: 64 };
+// Last drawn bonds and container width; used to redraw on resize / when the tab is shown.
 const histogram = { edges: [], width: 0 };
 const HIST_BIN_WIDTH = 0.01; // Å
 
-// Längenklassen zu 0,01 Å mit Anteil an allen Bindungen; leere Klassen innerhalb des
-// Wertebereichs bleiben erhalten. Die Längen haben drei Nachkommastellen, gerechnet wird
-// daher ganzzahlig in Hundertstel-Å.
+/**
+ * Length bins of 0.01 Å with their share of all bonds; empty bins within the
+ * value range are kept. Lengths have three decimals, so binning is done with
+ * integers in hundredths of an Å (avoids floating-point bin errors).
+ * @param {!Array<{length: number}>} edges Bonds.
+ * @return {!Array<{i: number, x0: number, x1: number, count: number,
+ *     share: number}>} Bins; `i` = bin index in 0.01 Å, `share` in percent.
+ */
 function histogramBins(edges) {
     if (!edges.length) return [];
     const binOf = len => Math.floor(Math.round(len * 1000) / 10);
@@ -2286,20 +2844,32 @@ function histogramBins(edges) {
 
 const formatAxisLength = v => v.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// Balken mit oben abgerundeten Ecken, unten bündig auf der Grundlinie.
+/**
+ * SVG path of a bar with rounded top corners, flush with the baseline at the bottom.
+ * @param {number} x Left edge.
+ * @param {number} y Top edge.
+ * @param {number} w Width.
+ * @param {number} h Height.
+ * @param {number} r Corner radius (clamped to the bar size).
+ * @return {string} Path data.
+ */
 function topRoundedBar(x, y, w, h, r) {
     r = Math.min(r, w / 2, h);
     return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
 }
 
-// Anteil der Bindungen je Längenklasse (0,01 Å) an allen Bindungen des ausgewählten Models.
-// Ohne Argument wird mit den zuletzt übergebenen Bindungen neu gezeichnet (z. B. nach Größenänderung).
+/**
+ * Renders the histogram of the share of bonds per length bin (0.01 Å) among all
+ * bonds of the selected model, with a hover tooltip per bin. Without an argument
+ * it redraws with the bonds passed last (e.g. after a resize).
+ * @param {!Array<!Object>=} edges Bonds to show.
+ */
 function renderBondHistogram(edges = histogram.edges) {
     histogram.edges = edges;
     const container = d3.select('#stat-bond-histogram');
     if (container.empty()) return;
     const width = container.node().clientWidth;
-    // Tab ausgeblendet: Breite zurücksetzen, damit der ResizeObserver beim Anzeigen neu zeichnet.
+    // Tab hidden: reset the width so that the ResizeObserver redraws once it is shown.
     if (!width) { histogram.width = 0; return; }
     histogram.width = width;
     container.selectAll('*').remove();
@@ -2314,7 +2884,7 @@ function renderBondHistogram(edges = histogram.edges) {
             gettext('Histogramm: Anteil der %s Bindungen je Bindungslänge, Klassenbreite 0,01 Å'), [formatInt(edges.length)]));
     const { x, y, bars } = drawHistogram(svg, bins, width, HIST_HEIGHT);
 
-    // Hover: Trefferfläche ist die ganze Spalte, nicht nur der Balken.
+    // Hover: the hit area is the whole column, not just the bar.
     const tip = container.append('div').attr('class', 'hist-tooltip').property('hidden', true);
     svg.append('g').selectAll('rect')
         .data(bins)
@@ -2341,7 +2911,16 @@ function renderBondHistogram(edges = histogram.edges) {
         });
 }
 
-// Achsen, Beschriftungen und Balken des Histogramms in `svg` (im Tab und für den Bild-Export).
+/**
+ * Draws axes, labels and bars of the histogram into `svg` (used by the tab and the
+ * image export).
+ * @param {!d3.Selection} svg Target SVG selection.
+ * @param {!Array<!Object>} bins Result of histogramBins (non-empty).
+ * @param {number} width Width (px).
+ * @param {number} height Height (px).
+ * @return {{x: !d3.ScaleLinear, y: !d3.ScaleLinear, bars: !d3.Selection}} Scales
+ *     and bar selection (for the hover interaction).
+ */
 function drawHistogram(svg, bins, width, height) {
     const m = HIST_MARGIN;
     const x = d3.scaleLinear().domain([bins[0].x0, bins[bins.length - 1].x1]).range([m.left, width - m.right]);
@@ -2365,7 +2944,7 @@ function drawHistogram(svg, bins, width, height) {
         .attr('transform', `translate(14,${(m.top + y(0)) / 2}) rotate(-90)`)
         .text(gettext('Anteil der Bindungen'));
 
-    // Balken mit 2px Abstand; auch sehr kleine Anteile bleiben als 1px-Balken sichtbar.
+    // Bars with a 2px gap; even very small shares stay visible as 1px bars.
     const bars = svg.append('g').selectAll('path')
         .data(bins.filter(b => b.count))
         .join('path')
@@ -2377,10 +2956,10 @@ function drawHistogram(svg, bins, width, height) {
     return { x, y, bars };
 }
 
-// ===== Export des Histogramms (SVG / PNG / JPEG) =====
-// Feste helle Farben wie im PDF, damit das Bild unabhängig vom Dark Mode gleich aussieht.
+// ===== Image export of the histogram (SVG / PNG / JPEG) =====
+// Fixed light colours as in the PDF so that the image looks the same regardless of dark mode.
 const HIST_EXPORT_SIZE = { width: 1200, height: 480 };
-const HIST_EXPORT_SCALE = 2; // Pixeldichte der Rasterbilder
+const HIST_EXPORT_SCALE = 2; // Pixel density of raster images
 const HIST_EXPORT_STYLE = `
     text { font-family: Roboto, Arial, sans-serif; }
     .hist-bar { fill: #0d6efd; }
@@ -2390,7 +2969,11 @@ const HIST_EXPORT_STYLE = `
     .hist-label { fill: #6c757d; font-size: 14px; }
 `;
 
-// Eigenständige SVG-Datei des Histogramms (weißer Hintergrund, eingebettete Styles).
+/**
+ * Standalone SVG file of the histogram (white background, embedded styles).
+ * @param {!Array<!Object>} edges Bonds.
+ * @return {string} SVG markup.
+ */
 function histogramSvgText(edges) {
     const { width, height } = HIST_EXPORT_SIZE;
     const svg = d3.create('svg')
@@ -2401,7 +2984,13 @@ function histogramSvgText(edges) {
     return new XMLSerializer().serializeToString(svg.node());
 }
 
-// SVG-Text als Rasterbild (`image/png` oder `image/jpeg`).
+/**
+ * Rasterises SVG markup via an <img> and a <canvas> at HIST_EXPORT_SCALE.
+ * @param {string} svgText SVG markup.
+ * @param {string} type 'image/png' or 'image/jpeg'.
+ * @param {{width: number, height: number}=} size Image size in CSS px.
+ * @return {!Promise<?Blob>} The raster image.
+ */
 async function rasterizeSvg(svgText, type, size = HIST_EXPORT_SIZE) {
     const { width, height } = size;
     const url = URL.createObjectURL(new Blob([svgText], { type: 'image/svg+xml' }));
@@ -2422,13 +3011,25 @@ async function rasterizeSvg(svgText, type, size = HIST_EXPORT_SIZE) {
     }
 }
 
+/**
+ * Histogram as a downloadable image.
+ * @param {!Array<!Object>} edges Bonds.
+ * @param {string} format 'svg', 'png' or 'jpeg'.
+ * @return {!Promise<!Blob>} The image.
+ */
 async function histogramBlob(edges, format) {
     const svgText = histogramSvgText(edges);
     if (format === 'svg') return new Blob([svgText], { type: 'image/svg+xml' });
     return rasterizeSvg(svgText, `image/${format}`);
 }
 
-// Disulfidbrücken mit ihren Atomen (Graph-Knoten), in Reihenfolge der Datei.
+// ===== Statistics: disulfide and peptide bonds =====
+/**
+ * Disulfide bridges with their atoms (graph nodes), in file order.
+ * @param {!Object} graphData Graph data.
+ * @return {!Array<!Object>} Edges extended by `atoms`; `via` tells whether the
+ *     bridge comes from an SSBOND record ('ssbond') or the SG–SG distance.
+ */
 function disulfideBonds(graphData) {
     const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
     return graphData.edges
@@ -2436,7 +3037,12 @@ function disulfideBonds(graphData) {
         .map(e => ({ ...e, atoms: [nodeById.get(e.source), nodeById.get(e.target)] }));
 }
 
-// Je Cystein (residueKey) die Partner seiner Disulfidbrücken, z. B. "CYS 127" oder "CYS 214 (Kette L)".
+/**
+ * Partners of the disulfide bridges per cysteine (sequence-bar tooltips).
+ * @param {!Object} graphData Graph data.
+ * @return {!Map<string, !Array<string>>} residueKey -> partner labels, e.g.
+ *     "CYS 127" or "CYS 214 (Kette L)" (the chain only if it differs).
+ */
 function disulfidePartners(graphData) {
     const partners = new Map();
     const label = (n, other) => `${n.residue} ${n.residue_seq}${n.i_code || ''}` +
@@ -2452,6 +3058,10 @@ function disulfidePartners(graphData) {
 
 const disulfideOrigin = via => via === 'ssbond' ? gettext('SSBOND-Eintrag') : gettext('Abstand');
 
+/**
+ * Renders the disulfide table (hidden if there are none).
+ * @param {!Object} graphData Graph data.
+ */
 function renderDisulfides(graphData) {
     const table = d3.select('#stat-disulfides');
     if (table.empty()) return;
@@ -2477,7 +3087,11 @@ function renderDisulfides(graphData) {
     total.append('td');
 }
 
-// Peptidbindungen: existente und nicht-existente (Kettenlücken), bezogen auf die theoretisch möglichen.
+/**
+ * Renders peptide bonds: existing and missing (chain breaks), relative to the
+ * theoretically possible ones.
+ * @param {!Object} graphData Graph data.
+ */
 function renderPeptideBonds(graphData) {
     const { possible, formed, breaks } = analyzePeptideBonds(graphData);
     d3.select('#stat-peptide-possible').text(formatInt(possible));
@@ -2488,6 +3102,13 @@ function renderPeptideBonds(graphData) {
     ], possible || 1, { sort: false });
 }
 
+/**
+ * Renders the bond part of the statistics tab (references, peptide bonds,
+ * disulfides, extremes, histogram, groups).
+ * @param {!Object} graphData Graph data of the selected model.
+ * @param {?Object} ensemble Bond ensemble; nothing is rendered without it.
+ * @param {string} modelLabel Label of the selected model.
+ */
 function renderBondStats(graphData, ensemble, modelLabel) {
     if (d3.select('#stat-bond-extremes').empty() || !ensemble) return;
     renderReferenceStats('stat-ref', referenceStats(graphData), 'bond', parentsByName(graphData.residues));
@@ -2498,25 +3119,39 @@ function renderBondStats(graphData, ensemble, modelLabel) {
     renderBondGroups(graphData);
 }
 
-// ===== Export der Statistiken (JSON / PDF) =====
+// ===== Export of the statistics (JSON / PDF) =====
+// Rounds to `digits` decimals and returns a number (null stays null).
 const roundTo = (v, digits) => v === null || v === undefined ? null : +v.toFixed(digits);
 const sharePercent = (count, total) => roundTo(100 * count / total, 2);
 
-// Atom einer Bindung im Export (Graph-Knoten und Ensemble-Atome haben dieselben Felder).
+// Atom of a bond in the export (graph nodes and ensemble atoms have the same fields).
 const exportAtom = n => ({
     name: n.label, serial: n.serial, residue: n.residue,
     position: `${n.residue_seq}${n.i_code || ''}`, chain: n.chain.trim(),
 });
-// Rückweg für die Beschriftung im PDF (describeBond erwartet Felder wie die Graph-Knoten).
+// Reverse mapping for labels in the PDF (describeBond expects fields like the graph nodes).
 const nodeLikeAtom = a => ({ label: a.name, serial: a.serial, residue: a.residue, residue_seq: a.position, chain: a.chain });
 
-// Strukturmetadaten aus dem Header (vom Server in die Seite eingebettet).
+/**
+ * Structure metadata from the PDB header (embedded by the server as
+ * `#structure-info`): method, resolution, R values, reference sources.
+ * @return {?Object} Parsed JSON, or null if the element is missing.
+ */
 const structureInfo = () => {
     const el = document.getElementById('structure-info');
     return el ? JSON.parse(el.textContent) : null;
 };
 
-// Alle Werte des Statistik-Tabs als ein Objekt; Grundlage für JSON- und PDF-Export.
+/**
+ * Collects all values of the statistics tab (plus the angles) into one plain
+ * object; the basis for both the JSON and the PDF export. The keys are part of
+ * the JSON export format, so keep them stable.
+ * @param {!Object} graphData Graph data of the selected model.
+ * @param {?Object} ensemble Bond ensemble.
+ * @param {string} modelLabel Label of the selected model.
+ * @param {string} filename Name of the uploaded PDB file.
+ * @return {!Object} Export data.
+ */
 function buildStatsExport(graphData, ensemble, modelLabel, filename) {
     const { nodes, edges, residues } = graphData;
     const aminoAcids = residues.filter(r => r.one_letter !== '?');
@@ -2591,11 +3226,11 @@ function buildStatsExport(graphData, ensemble, modelLabel, filename) {
         bonds: {
             length_unit: 'Å',
             ...(bonds.length ? summary(bonds) : { count: 0 }),
-            // Abweichung von Referenzwerten, Z = (Länge − Referenz) / Standardabweichung
+            // Deviation from reference values, Z = (length − reference) / standard deviation
             reference: referenceExport(reference, 'Å', 3),
-            // Zwischen aufeinanderfolgenden Aminosäuren einer Kette; missing = Kettenlücken
-            // via: "ssbond" (SSBOND-Eintrag) oder "distance" (SG–SG-Abstand)
+            // via: "ssbond" (SSBOND record) or "distance" (SG–SG distance)
             disulfides: disulfideBonds(graphData).map(b => ({ length: b.length, via: b.via, atoms: b.atoms.map(exportAtom) })),
+            // Between consecutive amino acids of a chain; missing = chain breaks
             peptide_bonds: {
                 possible: peptide.possible,
                 formed: peptide.formed,
@@ -2615,7 +3250,7 @@ function buildStatsExport(graphData, ensemble, modelLabel, filename) {
                     longest: exportBond(selectedMax, modelLabel),
                 },
             },
-            // Klassen sind halboffen: from <= Länge < to.
+            // Bins are half-open: from <= length < to.
             histogram: {
                 bin_width: HIST_BIN_WIDTH,
                 bins: histogramBins(bonds).map(b => ({
@@ -2634,13 +3269,19 @@ function buildStatsExport(graphData, ensemble, modelLabel, filename) {
     };
 }
 
-// ===== CSV-Export =====
-// Mit Dezimalkomma (Deutsch) trennt ein Semikolon die Spalten, sonst ein Komma – so öffnet
-// eine Tabellenkalkulation in derselben Sprache die Datei direkt. BOM für die Kodierung.
+// ===== CSV export =====
+// With a decimal comma (German) a semicolon separates the columns, otherwise a
+// comma, so that a spreadsheet application in the same language opens the file
+// directly. A BOM marks the encoding as UTF-8.
 const CSV_DECIMAL = (1.5).toLocaleString(LOCALE).includes(',') ? ',' : '.';
 const CSV_SEPARATOR = CSV_DECIMAL === ',' ? ';' : ',';
 const csvNumber = (v, digits) => v === null || v === undefined || Number.isNaN(v) ? ''
     : (roundTo(v, digits) || 0).toFixed(digits).replace('.', CSV_DECIMAL);
+/**
+ * Quotes a CSV field if it contains the separator, quotes or line breaks.
+ * @param {*} v Value.
+ * @return {string} The field.
+ */
 function csvField(v) {
     const s = v === null || v === undefined ? '' : String(v);
     return s.includes(CSV_SEPARATOR) || /["\r\n]/.test(s) ?`"${s.replaceAll('"', '""')}"` : s;
@@ -2648,11 +3289,18 @@ function csvField(v) {
 const csvText = (header, rows) =>
     '\ufeff' + [header, ...rows].map(r => r.map(csvField).join(CSV_SEPARATOR)).join('\r\n') + '\r\n';
 
-// Spalten eines Atoms in Bindungs- und Winkeltabellen; `i` nummeriert die Atome.
+// Columns of one atom in bond and angle tables; `i` numbers the atoms.
 const csvAtomHeader = i => [gettext('Kette'), gettext('Pos.'), gettext('Aminosäure'), gettext('Atom'), gettext('Atom-Nr.')]
     .map(label => `${label} ${i}`);
 const csvAtom = n => [n.chain.trim(), `${n.residue_seq}${n.i_code || ''}`, n.residue, n.label, n.serial];
 
+/**
+ * Builds one CSV export of the selected model.
+ * @param {string} kind 'atoms', 'bonds', 'angles' or 'dihedrals' (`data-csv` of
+ *     the export button).
+ * @param {!Object} graphData Graph data.
+ * @return {string} CSV text including BOM.
+ */
 function csvTable(kind, graphData) {
     const nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
     if (kind === 'atoms') {
@@ -2681,7 +3329,7 @@ function csvTable(kind, graphData) {
         return csvText([...csvAtomHeader(1), ...csvAtomHeader(2), ...csvAtomHeader(3), gettext('Typ'),
             gettext('Winkel (°)'), gettext('Referenz (°)'), gettext('σ (°)'), 'Z'], rows);
     }
-    // Diederwinkel je Aminosäure; ω gehört zur Peptidbindung vor der Aminosäure.
+    // 'dihedrals': torsion angles per amino acid; ω belongs to the peptide bond before the amino acid.
     const omegaOf = new Map(angles.omegas.map(o => [residueKey(o.res), o]));
     const rows = graphData.residues
         .filter(res => res.rama || omegaOf.has(residueKey(res)))
@@ -2697,13 +3345,20 @@ function csvTable(kind, graphData) {
         gettext('Kategorie'), gettext('Bereich')], rows);
 }
 
+// Translated file name part per CSV kind.
 const CSV_FILE_KINDS = {
     atoms: gettext('atome'), bonds: gettext('bindungen'), angles: gettext('bindungswinkel'), dihedrals: gettext('diederwinkel'),
 };
 
+// Download file name without extension: "<pdb name>_<kind>_<model slug>".
 const exportBaseName = (filename, model, kind = gettext('statistiken')) =>
     `${filename.replace(/\.[^.]+$/, '')}_${kind}_${model.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-')}`;
 
+/**
+ * Triggers a browser download of a blob via a temporary link.
+ * @param {!Blob} blob File content.
+ * @param {string} name File name.
+ */
 function downloadBlob(blob, name) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -2715,8 +3370,13 @@ function downloadBlob(blob, name) {
     setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-// Skripte (jsPDF) erst beim ersten PDF-Export nachladen.
+// Scripts (jsPDF) are loaded only on the first PDF export; src -> Promise.
 const loadedScripts = new Map();
+/**
+ * Loads a script once; a failed load is forgotten so that it can be retried.
+ * @param {string} src Script URL.
+ * @return {!Promise} Resolves when the script has loaded.
+ */
 function loadScript(src) {
     if (!loadedScripts.has(src)) {
         loadedScripts.set(src, new Promise((resolve, reject) => {
@@ -2733,13 +3393,22 @@ function loadScript(src) {
     return loadedScripts.get(src);
 }
 
-// Die PDF-Standardschriften kennen nur WinAnsi-Zeichen (kein Δ, kein Minuszeichen U+2212).
-// Auf Modulebene, da auch drawPdfHistogram sie braucht.
+// The PDF standard fonts only know WinAnsi characters (no Greek letters, no Δ, no
+// minus sign U+2212), so these are spelled out. At module level because
+// drawPdfHistogram and drawPdfRamachandran need it as well.
 const pdfText = v => String(v).replace(/φ/g, 'phi').replace(/ψ/g, 'psi').replace(/ω/g, 'omega').replace(/Δ/g, 'Delta').replace(/−/g, '-');
 
-// PDF aus den Exportdaten: dieselben Abschnitte und Tabellen wie im Tab; die Liste der
-// einzelnen Bindungen je Atompaar steht nur im JSON (bei großen Proteinen Tausende Zeilen).
-// options.bondList: einzelne Bindungen je Atompaar ausgeben (viele Seiten bei großen Strukturen)
+/**
+ * Builds the PDF from the export data: the same sections and tables as in the
+ * statistics and Ramachandran tabs, laid out top to bottom with a running `y`
+ * cursor (mm). The list of individual bonds per atom pair is optional because it
+ * runs to thousands of rows (many pages) for large proteins; the JSON export
+ * always contains it. Requires jsPDF and jspdf-autotable to be loaded.
+ * @param {!Object} data Result of buildStatsExport.
+ * @param {{bondList: (boolean|undefined)}=} options `bondList`: include the
+ *     individual bonds per atom pair.
+ * @return {!Object} The jsPDF document.
+ */
 function buildStatsPdf(data, options = {}) {
     const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
     const M = 15;
@@ -2747,9 +3416,10 @@ function buildStatsPdf(data, options = {}) {
     const pageH = doc.internal.pageSize.getHeight();
     const contentW = pageW - 2 * M;
     const INK = [33, 37, 41], MUTED = [108, 117, 125], LINE = [222, 226, 230], PRIMARY = [13, 110, 253];
-    const LENGTH_MIN = [11, 114, 133], LENGTH_MAX = [217, 72, 15]; // wie --length-min/max-color
+    const LENGTH_MIN = [11, 114, 133], LENGTH_MAX = [217, 72, 15]; // like --length-min/max-color (light theme)
     let y = M;
 
+    // Starts a new page if fewer than `h` mm are left.
     const ensureSpace = h => { if (y + h > pageH - M) { doc.addPage(); y = M; } };
     const sectionTitle = text => {
         ensureSpace(50);
@@ -2758,12 +3428,13 @@ function buildStatsPdf(data, options = {}) {
         doc.setDrawColor(...LINE).setLineWidth(0.3).line(M, y + 2, pageW - M, y + 2);
         y += 8;
     };
-    // Unterüberschrift nur dort, wo noch Platz für Kopf und einige Tabellenzeilen ist.
+    // Subheading only where there is still room for the header and a few table rows.
     const subTitle = (text, minSpace = 40) => {
         ensureSpace(minSpace);
         doc.setFont('helvetica', 'bold').setFontSize(9.5).setTextColor(...INK).text(pdfText(text), M, y);
         y += 2.5;
     };
+    // autoTable with the common style; all cell texts pass through pdfText. Advances `y`.
     const table = (options) => {
         doc.autoTable({
             startY: y,
@@ -2788,7 +3459,7 @@ function buildStatsPdf(data, options = {}) {
     const num = (content) => ({ content, styles: { halign: 'right' } });
     const parents = new Map(data.general.amino_acid_composition.filter(a => a.parent).map(a => [a.code, a.parent]));
 
-    // Abweichung von Referenzwerten (Bindungen oder Winkel): je Abschnitt mit seinen Gruppen, Ausreißer, Quelle
+    // Deviation from reference values (bonds or angles): per section with its groups, outliers, source
     const referenceTables = (ref, kind) => {
         const k = referenceKind(kind);
         const indent = { cellPadding: { top: 1.2, bottom: 1.2, left: 5, right: 1.5 } };
@@ -2824,7 +3495,7 @@ function buildStatsPdf(data, options = {}) {
         y += 4;
     };
 
-    // Kopf
+    // Header
     doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(...INK).text(pdfText(interpolate(gettext('Statistiken – %s'), [data.file])), M, y + 4);
     y += 10;
     const created = new Date(data.created).toLocaleString(LOCALE, { dateStyle: 'medium', timeStyle: 'short' });
@@ -2832,7 +3503,7 @@ function buildStatsPdf(data, options = {}) {
         .text(pdfText(interpolate(gettext('%(model)s · erstellt am %(date)s'), { model: data.model, date: created }, true)), M, y);
     y += 10;
 
-    // Allgemein
+    // General
     const g = data.general;
     sectionTitle(gettext('Allgemein'));
     table({
@@ -2867,7 +3538,7 @@ function buildStatsPdf(data, options = {}) {
         tableWidth: contentW * 0.6,
     });
 
-    // Elemente / Aminosäuren je Kette
+    // Elements / amino acids per chain
     const chainSection = ({ title, matrixTitle, shareTitle, rowLabel, rows, keyOf, labelOf, chains, countName, totalLabel, total }) => {
         sectionTitle(title);
         subTitle(matrixTitle);
@@ -2906,7 +3577,7 @@ function buildStatsPdf(data, options = {}) {
         });
     }
 
-    // Bindungen
+    // Bonds
     const b = data.bonds;
     sectionTitle(gettext('Bindungen'));
     subTitle(gettext('Abweichung von Referenzwerten'));
@@ -2975,7 +3646,7 @@ function buildStatsPdf(data, options = {}) {
             6: { halign: 'right', textColor: LENGTH_MAX },
         },
     });
-    // Einzelne Bindungen je Atompaar (wie aufgeklappt im Tab); kürzeste und längste farbig markiert
+    // Individual bonds per atom pair (as expanded in the tab); shortest and longest highlighted in colour
     if (options.bondList) {
         subTitle(gettext('Einzelne Bindungen je Atompaar'));
         table({
@@ -2997,7 +3668,7 @@ function buildStatsPdf(data, options = {}) {
         });
     }
 
-    // Winkel
+    // Angles: Ramachandran plot with legend next to it
     const ang = data.angles;
     const RAMA = { general: [13, 110, 253], gly: [240, 140, 0], pro: [47, 158, 68] };
     sectionTitle(gettext('Winkel'));
@@ -3018,7 +3689,7 @@ function buildStatsPdf(data, options = {}) {
         `${ramaRegionLabel('outlier')} (${formatInt(ang.ramachandran_evaluation.outliers)})`), M + ramaSize + 13, outlierY);
     y += ramaSize + 9;
 
-    // Ramachandran-Bewertung
+    // Ramachandran evaluation
     const ev = ang.ramachandran_evaluation;
     subTitle(gettext('Ramachandran-Bewertung'));
     const regionCells = t => [t.favored, t.allowed, t.outliers].map(v => num(formatInt(v)));
@@ -3071,7 +3742,7 @@ function buildStatsPdf(data, options = {}) {
     subTitle(gettext('Abweichung von Referenzwerten'));
     referenceTables(ang.reference, 'angle');
 
-    // Fußzeile auf jeder Seite
+    // Footer on every page (added last, when the page count is known)
     const pages = doc.getNumberOfPages();
     for (let i = 1; i <= pages; i++) {
         doc.setPage(i);
@@ -3083,7 +3754,16 @@ function buildStatsPdf(data, options = {}) {
     return doc;
 }
 
-// Histogramm als Vektorgrafik im PDF (gleiche Gestaltung wie im Tab).
+/**
+ * Draws the histogram as vector graphics into the PDF (same design as in the tab).
+ * @param {!Object} doc jsPDF document.
+ * @param {!Array<!Object>} bins Exported bins (`from`, `to`, `count`, `share_percent`).
+ * @param {number} left Left edge (mm).
+ * @param {number} top Top edge (mm).
+ * @param {number} width Width (mm).
+ * @param {number} height Height (mm).
+ * @param {!Object<string, !Array<number>>} colors RGB colours INK, MUTED, LINE, PRIMARY.
+ */
 function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
     const plotL = left + 16, plotR = left + width, plotT = top + 2, plotB = top + height - 11;
     const x = d3.scaleLinear().domain([bins[0].from, bins[bins.length - 1].to]).range([plotL, plotR]);
@@ -3114,18 +3794,24 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
 }
 
 // ===== Init =====
+// Entry point: reads the embedded JSON, renders all tabs once and wires up the
+// controls (model/conformation selects, style/layout buttons, exports, tab
+// switches, theme and resize observers). Runs only on pages with #graph-data.
 (function () {
     const dataEl = document.getElementById('graph-data');
     if (!dataEl) return;
+    // Current graph data and bond ensemble; replaced by loadStructure().
     let graphData = JSON.parse(dataEl.textContent);
     const ensembleEl = document.getElementById('bond-ensemble');
     let bondEnsemble = ensembleEl ? JSON.parse(ensembleEl.textContent) : null;
 
+    // Bond colouring and layout of the graph, remembered across visits.
     let activeStyle  = localStorage.getItem('bondStyle') || 'gradient';
     let activeLayout = localStorage.getItem('layout')    || 'schematic';
 
     const canvas = setupCanvas();
 
+    // Re-renders the graph tab with the current data, style and layout.
     function redraw(animate = true) {
         render(canvas, graphData, activeStyle, activeLayout, animate);
     }
@@ -3133,10 +3819,10 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
     const selectsWrap = document.getElementById('structure-selects');
     const modelSelect = document.getElementById('model-select');
     const altlocSelect = document.getElementById('altloc-select');
-    // Deaktivierte Felder (nur ein Model / keine Alternativen) bieten keine Auswahl.
+    // Disabled selects (only one model / no alternate locations) offer no choice.
     const selectable = [modelSelect, altlocSelect].filter(s => s && !s.disabled);
 
-    // Name des angezeigten Models, bei gewählter Konformation mit deren Kennung.
+    // Label of the selected model, with the conformation id if one is selected.
     function modelLabel() {
         const model = modelSelect
             ? modelSelect.selectedOptions[0].textContent.trim()
@@ -3144,11 +3830,13 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
         const altloc = altlocSelect && !altlocSelect.disabled ? altlocSelect.value : '';
         return altloc ? `${model} · ${interpolate(gettext('Konformation %s'), [altloc])}` : model;
     }
-    // Model der aktuell geladenen Daten (das Auswahlfeld wechselt schon vor dem Laden).
+    // Model of the currently loaded data (the select changes before loading finishes).
     let loadedModelLabel = modelLabel();
 
-    // Lädt Graph-Daten für die gewählte Kombination aus Model und Konformation; nach einem
-    // Konformationswechsel auch die Bindungsstatistik über alle Models.
+    // Loads graph data for the selected combination of model and conformation from
+    // the `/pdb/<pk>/models/` endpoint and re-renders all tabs; after a conformation
+    // change also the bond ensemble over all models (it depends on the altloc).
+    // The selects are disabled while loading.
     async function loadStructure(withEnsemble) {
         const params = new URLSearchParams();
         if (modelSelect && !modelSelect.disabled) params.set('model', modelSelect.value);
@@ -3176,6 +3864,7 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
     }
     selectable.forEach(select => select.addEventListener('change', () => loadStructure(select === altlocSelect)));
 
+    // Export sidebar of the statistics tab: JSON, PDF, CSV and histogram images.
     const exportBar = document.getElementById('stats-export');
     if (exportBar) {
         const { filename, jspdfSrc, autotableSrc } = exportBar.dataset;
@@ -3188,12 +3877,12 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
         });
 
         const pdfButton = document.getElementById('export-pdf');
-        // Häkchen "Einzelne Bindungen" im PDF; Wahl bleibt im Browser gespeichert
+        // "Individual bonds" checkbox for the PDF; the choice is remembered in the browser
         const pdfBondList = document.getElementById('export-pdf-bonds');
         if (pdfBondList) {
-            try { pdfBondList.checked = localStorage.getItem('pdfBondList') === '1'; } catch { /* ohne Speicher: aus */ }
+            try { pdfBondList.checked = localStorage.getItem('pdfBondList') === '1'; } catch { /* no storage: off */ }
             pdfBondList.addEventListener('change', () => {
-                try { localStorage.setItem('pdfBondList', pdfBondList.checked ? '1' : '0'); } catch { /* ignorieren */ }
+                try { localStorage.setItem('pdfBondList', pdfBondList.checked ? '1' : '0'); } catch { /* ignore */ }
             });
         }
         pdfButton.addEventListener('click', async () => {
@@ -3236,6 +3925,8 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
         });
     }
 
+    // Syncs the active state of the style/layout buttons and shows the legend
+    // matching the bond style.
     function updateButtons() {
         document.querySelectorAll('.style-option[data-style]').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.style === activeStyle);
@@ -3251,6 +3942,7 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
         });
     }
 
+    // Global handlers for the onclick attributes of the toolbar buttons in graph.html.
     window.setBondStyle = function (style) {
         activeStyle = style;
         localStorage.setItem('bondStyle', style);
@@ -3269,6 +3961,8 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
         canvas.svg.transition().duration(400).call(canvas.zoom.transform, d3.zoomIdentity);
     };
 
+    // Initial render of all tabs (hidden tabs are rendered too; the histogram
+    // catches up once its tab is visible, see below).
     updateButtons();
     redraw(false);
     renderDataTable(canvas, graphData.nodes);
@@ -3278,6 +3972,7 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
     renderAngles(canvas, graphData);
 
     const anglesExportBar = document.getElementById('angles-export');
+    // Category filter of the Ramachandran plot; loads the region grids on first use.
     const ramaTypeSelect = document.getElementById('rama-type');
     if (ramaTypeSelect) {
         d3.select(ramaTypeSelect).selectAll('option.rama-type-option').data(RAMA_TYPES).join('option')
@@ -3310,7 +4005,7 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
         });
     }
 
-    // Tabellen-Scrollen aktualisiert die Hervorhebung in der Sequenzleiste (einmal pro Frame).
+    // Scrolling the table updates the highlight in the sequence bar (at most once per frame).
     let tableScrollPending = false;
     canvas.tableScroll.addEventListener('scroll', () => {
         if (tableScrollPending) return;
@@ -3321,7 +4016,9 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
         });
     });
 
-    // Die Sequenzleiste gehört nur zu den Tabs Graph und Daten.
+    // The sequence bar belongs to the graph and data tabs only. When a tab has
+    // been shown, catch up on a pending jump to the selected residue and refresh
+    // the sequence highlight.
     const sequenceCard = document.getElementById('sequence-card');
     document.querySelectorAll('[data-bs-toggle="tab"][data-tab]').forEach(btn => {
         btn.addEventListener('show.bs.tab', () => {
@@ -3343,23 +4040,25 @@ function drawPdfHistogram(doc, bins, left, top, width, height, colors) {
                 markSequenceInView(canvas, () => false);
             }
             if (tab === 'stats') {
-                // Im ausgeblendeten Tab übersprungenes Histogramm nachholen.
+                // Catch up on the histogram skipped while the tab was hidden.
                 const histogramEl = document.getElementById('stat-bond-histogram');
                 if (histogramEl && histogramEl.clientWidth !== histogram.width) renderBondHistogram();
             }
         });
     });
 
+    // Theme switch (data-bs-theme): redraw, because the graph reads colours from
+    // CSS variables at render time.
     const observer = new MutationObserver(() => redraw(false));
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-bs-theme'] });
 
-    // Bandbreite und Zoom-Grenzen hängen von der Containergröße ab.
-    // Im ausgeblendeten Tab (Größe 0) nicht neu zeichnen, sonst verrutschen die Zoom-Grenzen.
+    // Content width and zoom bounds depend on the container size.
+    // Do not redraw in a hidden tab (size 0), otherwise the zoom bounds get shifted.
     new ResizeObserver(() => {
         if (canvas.svg.node().clientWidth > 0) redraw(false);
     }).observe(canvas.svg.node());
 
-    // Histogramm an die Breite anpassen; im ausgeblendeten Tab erst beim Anzeigen zeichnen.
+    // Fit the histogram to its width; in a hidden tab draw it only once it is shown.
     const histogramEl = document.getElementById('stat-bond-histogram');
     if (histogramEl) {
         new ResizeObserver(() => {

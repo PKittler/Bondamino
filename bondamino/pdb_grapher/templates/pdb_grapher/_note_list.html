@@ -1,4 +1,13 @@
-{% load i18n %}
+{% comment %}
+Partial: list of the notes on a PDB file. Included by graph.html and also returned on its own by
+the note views (views._render_notes) as the AJAX response that notes.js puts into #note-list.
+
+Context (from views._notes_context):
+    notes: Notes visible to the user; each with user_can_edit and, if editable, edit_form.
+    led_group_ids: Pks of the groups the user leads (may remove notes from them).
+
+data-groups on each note holds the group pks, used by the filter in notes.js.
+{% endcomment %}{% load i18n %}
 {% for note in notes %}
     <article class="note" data-groups="{% for group in note.groups.all %}{{ group.pk }}{% if not forloop.last %} {% endif %}{% endfor %}">
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">

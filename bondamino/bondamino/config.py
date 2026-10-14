@@ -1,7 +1,17 @@
-"""Konfiguration aus Umgebungsvariablen und der Datei .env (für settings.py und `manage.py setup`).
+"""Configuration from environment variables and the .env file.
 
-Werte aus der Umgebung haben Vorrang vor der .env-Datei, damit Docker, Portainer und ähnliche
-Umgebungen einzelne Werte überschreiben können.
+Small, dependency-free helpers used by settings.py and by the management command
+`manage.py setup` (pdb_grapher/management/commands/setup.py), which writes the .env file.
+
+Values from the environment take precedence over the .env file so that Docker, Portainer and
+similar environments can override individual values.
+
+Typical usage in settings.py:
+
+    load_env_file(BASE_DIR / '.env')
+    DEBUG = env_bool('DEBUG', False)
+    ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', ['localhost'])
+    DATABASES = {'default': parse_database_url(env('DATABASE_URL', 'sqlite:///db.sqlite3'), BASE_DIR)}
 """
 import os
 from pathlib import Path
@@ -9,8 +19,18 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 
 def read_env_file(path):
-    """Zeilen `NAME=wert` als dict; leere Zeilen und Kommentare (#) werden übersprungen.
-    Werte dürfen in einfache oder doppelte Anführungszeichen gesetzt sein."""
+    """Reads a .env file into a dict.
+
+    Lines of the form `NAME=value` are parsed; empty lines, comments (#) and lines without `=`
+    are skipped. Only the first `=` separates name and value, so values may contain `=` and `#`.
+    Values may be enclosed in single or double quotes, which are removed.
+
+    Args:
+        path: Path of the .env file (str or Path).
+
+    Returns:
+        A dict mapping variable names to string values; empty if the file does not exist.
+    """
     values = {}
     path = Path(path)
     if not path.is_file():
@@ -28,18 +48,45 @@ def read_env_file(path):
 
 
 def load_env_file(path):
-    """Werte aus der .env-Datei in os.environ übernehmen, ohne gesetzte Variablen zu überschreiben."""
+    """Copies the values of a .env file into os.environ.
+
+    Variables that are already set in the environment are not overwritten.
+
+    Args:
+        path: Path of the .env file (str or Path); a missing file is ignored.
+    """
     for name, value in read_env_file(path).items():
         os.environ.setdefault(name, value)
 
 
 def env(name, default=''):
-    """Wert einer Variable; leer gilt als nicht gesetzt (Docker Compose setzt leere Werte)."""
+    """Returns the value of an environment variable.
+
+    An empty value counts as not set, because Docker Compose passes unset variables as empty
+    strings.
+
+    Args:
+        name: Name of the environment variable.
+        default: Value returned if the variable is unset or empty.
+
+    Returns:
+        The value of the variable as a string, or `default`.
+    """
     value = os.environ.get(name)
     return default if value is None or value == '' else value
 
 
 def env_bool(name, default=False):
+    """Returns an environment variable interpreted as a boolean.
+
+    Args:
+        name: Name of the environment variable.
+        default: Value returned if the variable is unset or empty.
+
+    Returns:
+        True for `1`, `true`, `yes` or `on` (case-insensitive), False for any other non-empty
+        value, `default` if the variable is unset or empty.
+    """
     value = os.environ.get(name)
     if value is None or value == '':
         return default
@@ -47,13 +94,27 @@ def env_bool(name, default=False):
 
 
 def env_list(name, default=()):
-    """Kommagetrennte Liste, z. B. ALLOWED_HOSTS=bondamino.example.org,localhost."""
+    """Returns a comma-separated environment variable as a list.
+
+    Example: `ALLOWED_HOSTS=bondamino.example.org,localhost`. Items are stripped and empty
+    items are dropped.
+
+    Args:
+        name: Name of the environment variable.
+        default: Iterable returned (as a list) if the variable is unset or blank.
+
+    Returns:
+        A list of strings.
+    """
     value = os.environ.get(name)
     if value is None or value.strip() == '':
         return list(default)
     return [item.strip() for item in value.split(',') if item.strip()]
 
 
+# URL scheme of DATABASE_URL -> Django database backend. To support another database, add its
+# scheme here, its driver to a requirements file and, for the guided setup, an entry to
+# DATABASES in pdb_grapher/management/commands/setup.py.
 DATABASE_ENGINES = {
     'sqlite': 'django.db.backends.sqlite3',
     'postgres': 'django.db.backends.postgresql',
@@ -64,12 +125,26 @@ DATABASE_ENGINES = {
 
 
 def parse_database_url(url, base_dir):
-    """DATABASE_URL als Eintrag für DATABASES.
+    """Converts a DATABASE_URL into an entry for Django's DATABASES setting.
 
-    sqlite:///db.sqlite3 (relativ zu base_dir), sqlite:////data/db.sqlite3 (absolut),
-    postgres://user:passwort@host:5432/name?sslmode=require, mariadb://user:passwort@host:3306/name.
-    Sonderzeichen in Benutzer und Passwort müssen URL-kodiert sein (z. B. @ als %40).
-    Weitere Parameter nach ? landen in OPTIONS.
+    Supported forms:
+        sqlite:///db.sqlite3 (relative to base_dir), sqlite:////data/db.sqlite3 (absolute),
+        postgres://user:password@host:5432/name?sslmode=require,
+        mariadb://user:password@host:3306/name (also mysql://).
+
+    Special characters in user and password must be URL-encoded (e.g. @ as %40). Further
+    parameters after ? end up in OPTIONS; for MariaDB/MySQL the charset defaults to utf8mb4.
+
+    Args:
+        url: The database URL.
+        base_dir: Directory that relative SQLite paths are resolved against.
+
+    Returns:
+        A dict with ENGINE and NAME (SQLite) or ENGINE, NAME, USER, PASSWORD, HOST, PORT and
+        OPTIONS (server databases).
+
+    Raises:
+        ValueError: If the scheme is not supported or a SQLite URL has no file name.
     """
     parts = urlsplit(url)
     scheme = parts.scheme.lower()
@@ -78,7 +153,7 @@ def parse_database_url(url, base_dir):
                          f'(supported: sqlite, postgres, mariadb, mysql)')
     engine = DATABASE_ENGINES[scheme]
     if scheme == 'sqlite':
-        # sqlite:///relativ → Pfad "/relativ"; sqlite:////absolut → Pfad "//absolut"
+        # sqlite:///relative -> path "/relative"; sqlite:////absolute -> path "//absolute"
         path = unquote(parts.path)
         path = path[1:] if path.startswith('/') else path
         if not path:
@@ -101,7 +176,16 @@ def parse_database_url(url, base_dir):
 
 
 def read_secret_key(path):
-    """Secret Key aus einer Datei (Docker: im Datenvolume, siehe docker-entrypoint.sh)."""
+    """Reads the secret key from a file.
+
+    In Docker the file is created in the data volume by docker/entrypoint.sh.
+
+    Args:
+        path: Path of the file containing the key.
+
+    Returns:
+        The key without surrounding whitespace, or an empty string if the file cannot be read.
+    """
     try:
         return Path(path).read_text(encoding='utf-8').strip()
     except OSError:

@@ -1,8 +1,20 @@
-"""Geführte Einrichtung: fragt Datenbank, Domain und E-Mail ab, schreibt die Datei .env und richtet
-danach die Datenbank ein (Migrationen, statische Dateien, erster Administrator).
+"""Guided setup: ``python manage.py setup``.
 
-Für Docker, Portainer u. ä. nicht nötig: Dort kommt die Konfiguration aus Umgebungsvariablen
-(siehe docker-compose.yml und README).
+Steps:
+
+1. Asks for the database (SQLite, PostgreSQL or MariaDB/MySQL) and tests the connection.
+2. Asks for the web address (allowed hosts, HTTPS behind a reverse proxy, DEBUG, time zone).
+3. Asks for the email settings (SMTP or console) and optionally sends a test email.
+4. Generates a SECRET_KEY if there is none, keeps any other values already in the file, shows a summary and
+   writes the ``.env`` file (the previous one is kept as ``.env.bak``).
+5. Runs ``setup --finish`` in a new process so the new configuration applies: migrations, cache table (for
+   login throttling), static files and, if there is none yet, the first administrator.
+
+Existing values from the ``.env`` file are offered as defaults, so the command can be re-run to change the
+configuration. ``--skip-finish`` only writes the file, ``--finish`` only prepares the database.
+
+Not needed for Docker, Portainer and the like: there the configuration comes from environment variables
+(see docker-compose.yml and README).
 """
 import getpass
 import os
@@ -21,7 +33,7 @@ from django.core.management import BaseCommand, call_command
 from bondamino.config import parse_database_url, read_env_file
 
 DATABASES = [
-    # (Schlüssel, Bezeichnung, URL-Schema, Standardport, Paketdatei für den Treiber)
+    # (key, label, URL scheme, default port, requirements file for the driver)
     ('sqlite', 'SQLite (single file, for testing and small installations)', 'sqlite', '', None),
     ('postgres', 'PostgreSQL (recommended)', 'postgres', '5432', 'requirements-postgresql.txt'),
     ('mariadb', 'MariaDB / MySQL', 'mariadb', '3306', 'requirements-mariadb.txt'),
@@ -31,7 +43,8 @@ CONSOLE_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 
 class Command(BaseCommand):
-    help = 'Interactive setup: database, domain and email; writes .env and prepares the database.'
+    """The ``setup`` management command (see the module docstring)."""
+    help ='Interactive setup: database, domain and email; writes .env and prepares the database.'
 
     def add_arguments(self, parser):
         parser.add_argument('--env-file', default=os.environ.get('BONDAMINO_ENV_FILE', str(settings.BASE_DIR / '.env')),
@@ -41,20 +54,23 @@ class Command(BaseCommand):
         parser.add_argument('--finish', action='store_true',
                             help='Only prepare the database with the current configuration')
 
-    # ----- Eingaben -----
+    # ----- Input -----
     def ask(self, prompt, default=''):
+        """Asks for a value; an empty answer returns ``default``."""
         suffix = f' [{default}]' if default else ''
         answer = input(f'{prompt}{suffix}: ').strip()
         return answer or default
 
     def ask_secret(self, prompt, current):
+        """Asks for a password without echoing it; an empty answer keeps ``current``."""
         hint = ' [keep current]' if current else ''
-        # Ohne Terminal (Eingabe per Pipe) liest getpass unter Windows nicht von stdin
+        # Without a terminal (input via pipe) getpass does not read from stdin on Windows
         read = getpass.getpass if sys.stdin.isatty() else input
         answer = read(f'{prompt}{hint}: ')
         return answer or current
 
     def ask_yes_no(self, prompt, default):
+        """Asks a yes/no question (English or German answers) until the answer is valid; empty returns ``default``."""
         options = 'Y/n' if default else 'y/N'
         while True:
             answer = input(f'{prompt} [{options}]: ').strip().lower()
@@ -66,7 +82,16 @@ class Command(BaseCommand):
                 return False
 
     def ask_choice(self, prompt, choices, default):
-        """choices: [(Schlüssel, Bezeichnung)]; Eingabe der Nummer."""
+        """Lets the user pick one of several options by number.
+
+        Args:
+            prompt: Question shown after the numbered list.
+            choices: List of ``(key, label)`` tuples.
+            default: Key preselected when the answer is empty.
+
+        Returns:
+            The key of the chosen option.
+        """
         for number, (_, label) in enumerate(choices, 1):
             self.stdout.write(f'  {number}) {label}')
         keys = [key for key, _ in choices]
@@ -76,11 +101,20 @@ class Command(BaseCommand):
                 return keys[int(answer) - 1]
 
     def section(self, title):
+        """Prints a section heading."""
         self.stdout.write('')
         self.stdout.write(self.style.MIGRATE_HEADING(title))
 
-    # ----- Schritte -----
+    # ----- Steps -----
     def configure_database(self, current):
+        """Asks for the database settings and tests the connection until it works or the user gives up.
+
+        Args:
+            current: Values of the existing ``.env`` file; its ``DATABASE_URL`` provides the defaults.
+
+        Returns:
+            The new ``DATABASE_URL`` (also returned if the connection test failed and the user declined to retry).
+        """
         self.section('1. Database')
         url = current.get('DATABASE_URL', 'sqlite:///db.sqlite3')
         parts = urlsplit(url)
@@ -111,7 +145,17 @@ class Command(BaseCommand):
             parts, same = urlsplit(url), True
 
     def check_database(self, url, requirements):
-        """Fehlermeldung oder None, wenn die Verbindung klappt."""
+        """Tests a database URL.
+
+        For SQLite only checks that the folder exists (the file is created by the migrations).
+
+        Args:
+            url: Database URL to test.
+            requirements: Requirements file with the driver, mentioned if the driver is missing.
+
+        Returns:
+            An error message, or None if the connection works.
+        """
         from django.db.utils import ConnectionHandler
         try:
             config = parse_database_url(url, settings.BASE_DIR)
@@ -122,7 +166,7 @@ class Command(BaseCommand):
             return None if folder.is_dir() else f'Folder {folder} does not exist'
         try:
             connection = ConnectionHandler({'default': config})['default']
-        except Exception as error:  # fehlender Treiber
+        except Exception as error:  # missing driver
             return f'{error}\nInstall the driver with: pip install -r {requirements}'
         try:
             connection.ensure_connection()
@@ -133,6 +177,7 @@ class Command(BaseCommand):
         return None
 
     def configure_web(self, current):
+        """Asks for hosts, HTTPS, DEBUG and time zone; returns them as ``.env`` values."""
         self.section('2. Web address')
         hosts = self.ask('Domain(s) under which Bondamino is reached, comma-separated',
                          current.get('ALLOWED_HOSTS', 'localhost'))
@@ -145,6 +190,7 @@ class Command(BaseCommand):
                 'DEBUG': '1' if debug else '0', 'TIME_ZONE': time_zone}
 
     def configure_email(self, current):
+        """Asks for the email backend and SMTP settings, optionally sends a test email; returns ``.env`` values."""
         self.section('3. Email (invitations, forgotten passwords)')
         smtp = current.get('EMAIL_BACKEND') == SMTP_BACKEND
         kind = self.ask_choice('Sending', [
@@ -176,6 +222,7 @@ class Command(BaseCommand):
         return values
 
     def send_test_email(self, values, recipient):
+        """Sends a test email with the entered SMTP settings and prints the result (errors are not raised)."""
         try:
             connection = get_connection(
                 SMTP_BACKEND, host=values['EMAIL_HOST'], port=int(values['EMAIL_PORT']),
@@ -188,8 +235,14 @@ class Command(BaseCommand):
         except Exception as error:
             self.stdout.write(self.style.ERROR(f'Test email failed: {error}'))
 
-    # ----- Datei -----
+    # ----- File -----
     def write_env(self, path, values):
+        """Writes the ``.env`` file, keeping a backup of the old one and restricting access to the owner.
+
+        Args:
+            path: Path of the ``.env`` file.
+            values: Mapping of variable names to values.
+        """
         path = Path(path)
         if path.exists():
             backup = path.with_name(path.name + '.bak')
@@ -201,10 +254,11 @@ class Command(BaseCommand):
         path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
         try:
             path.chmod(0o600)
-        except OSError:
+        except OSError:  # e.g. file systems without Unix permissions
             pass
 
     def summary(self, values):
+        """Prints the values to be written, with passwords and the secret key masked."""
         self.section('Summary')
         for name, value in values.items():
             if name in ('SECRET_KEY', 'EMAIL_HOST_PASSWORD') and value:
@@ -215,8 +269,9 @@ class Command(BaseCommand):
                     value = value.replace(f':{password}@', ':********@')
             self.stdout.write(f'  {name}={value}')
 
-    # ----- Datenbank einrichten -----
+    # ----- Prepare the database -----
     def finish(self):
+        """Migrates, creates the cache table, collects static files and creates the first administrator if needed."""
         self.section('Preparing the database')
         call_command('migrate', interactive=False)
         call_command('createcachetable')
@@ -229,6 +284,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('Bondamino is set up.'))
 
     def handle(self, *args, env_file, skip_finish, finish, **options):
+        """Runs the guided setup (or only the database part with ``--finish``)."""
         if finish:
             self.finish()
             return
@@ -241,7 +297,7 @@ class Command(BaseCommand):
         values.update(self.configure_web(current))
         values.update(self.configure_email(current))
         values['SECRET_KEY'] = current.get('SECRET_KEY') or secrets.token_urlsafe(50)
-        # Weitere, von Hand eingetragene Werte bleiben erhalten
+        # Keep other values that were added to the file by hand
         values.update({name: value for name, value in current.items() if name not in values})
 
         self.summary(values)
@@ -252,8 +308,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'{env_file} written.'))
         if skip_finish:
             return
-        # In einem neuen Prozess, damit die neue Konfiguration gilt. Werte, die aus der alten
-        # .env-Datei in die Umgebung geladen wurden, dürfen die neuen nicht überdecken.
+        # In a new process so that the new configuration applies. Values loaded into the environment from the
+        # old .env file must not override the new ones.
         child_env = {name: value for name, value in os.environ.items() if current.get(name) != value}
         child_env['BONDAMINO_ENV_FILE'] = str(env_file)
         subprocess.run([sys.executable, str(settings.BASE_DIR / 'manage.py'), 'setup', '--finish'],

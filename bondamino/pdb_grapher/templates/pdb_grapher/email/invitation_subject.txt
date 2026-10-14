@@ -1,1 +1,1 @@
-{% load i18n %}{% translate 'Dein Zugang zu Bondamino' %}
+{# Subject of the invitation email; rendered by forms.send_invitation, line breaks are removed. #}{% load i18n %}{% translate 'Dein Zugang zu Bondamino' %}
