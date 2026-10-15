@@ -8,13 +8,21 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "${BONDAMINO_PORT:-8000}:8000"
+      # Only reachable from this computer by default (for a reverse proxy on the same host).
+      # Set BONDAMINO_PORT=8000 to make it reachable from other computers without a proxy, but
+      # never together with HTTPS=1: clients could then forge X-Forwarded-For.
+      - "${BONDAMINO_PORT:-127.0.0.1:8000}:8000"
     environment:
       DATABASE_URL: sqlite:////data/db.sqlite3
-      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
       HTTPS: ${HTTPS:-0}
-      TIME_ZONE: ${TIME_ZONE:-Europe/Berlin}
+      TIME_ZONE: ${TIME_ZONE:-UTC}
+      DEBUG: ${DEBUG:-0}
+      LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      CONN_MAX_AGE: ${CONN_MAX_AGE:-60}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
       # Leave empty: the key is generated on the first start and stored in /data
       SECRET_KEY: ${SECRET_KEY:-}
       EMAIL_BACKEND: ${EMAIL_BACKEND:-}

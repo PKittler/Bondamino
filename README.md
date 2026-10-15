@@ -41,9 +41,9 @@ own computer is Docker:
 1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and start it.
 2. Download Bondamino (on this page **Code → Download source code → zip**, then unpack it and
    rename the folder to `Bondamino`) or clone it with Git.
-3. In the Bondamino folder, copy the file `.env.example` to `.env`, fill in
-   `ADMIN_USERNAME`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` (your first administrator account) and
-   empty the line `EMAIL_BACKEND=` (emails are then written to the log instead of being sent).
+3. In the Bondamino folder, copy the file `.env.example` to `.env` and fill in
+   `ADMIN_USERNAME`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` (your first administrator account).
+   Emails are written to the log until you configure a mail server.
 4. Open a terminal in the Bondamino folder and run
 
    ```sh

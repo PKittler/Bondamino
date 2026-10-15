@@ -321,7 +321,7 @@ def detail(request, pk):
         'altlocs': altlocs,
         'structure_info': structure_info,
         'bond_ensemble': bond_ensemble,
-        'note_form': NoteForm(user=request.user, prefix='note-new'),
+        'note_form': NoteForm(user=request.user, pdb=pdb, prefix='note-new'),
         'user_groups': WorkGroup.objects.filter(members=request.user),
         **_notes_context(request, pdb),
     })
@@ -357,6 +357,9 @@ def model_data(request, pk):
         try:
             model_id = int(model_param)
         except ValueError:
+            return JsonResponse({'error': _('Ungültiges Model.')}, status=400)
+        if model_id not in models:
+            # Would otherwise silently return an empty graph.
             return JsonResponse({'error': _('Ungültiges Model.')}, status=400)
     else:
         model_id = models[0] if models else None
@@ -396,7 +399,7 @@ def _notes_context(request, pdb):
     for note in notes:
         note.user_can_edit = note.editable_by(request.user)
         if note.user_can_edit:
-            note.edit_form = NoteForm(instance=note, user=request.user, prefix=f'note-{note.pk}')
+            note.edit_form = NoteForm(instance=note, user=request.user, pdb=pdb, prefix=f'note-{note.pk}')
     return {
         'notes': notes,
         'led_group_ids': set(request.user.led_workgroups.values_list('pk', flat=True)),
@@ -422,7 +425,7 @@ def note_create(request, pk):
         The updated note list, or JSON errors with status 400.
     """
     pdb =_visible_pdb_or_404(request.user, pk)
-    form = NoteForm(request.POST, user=request.user, prefix='note-new')
+    form = NoteForm(request.POST, user=request.user, pdb=pdb, prefix='note-new')
     if not form.is_valid():
         return _form_errors(form)
     note = form.save(commit=False)
@@ -445,7 +448,7 @@ def note_edit(request, pk, note_pk):
     note = get_object_or_404(pdb.notes.visible_to(request.user), pk=note_pk)
     if not note.editable_by(request.user):
         return HttpResponseForbidden(_('Nur der Verfasser darf die Anmerkung bearbeiten.'))
-    form = NoteForm(request.POST, instance=note, user=request.user, prefix=f'note-{note.pk}')
+    form = NoteForm(request.POST, instance=note, user=request.user, pdb=pdb, prefix=f'note-{note.pk}')
     if not form.is_valid():
         return _form_errors(form)
     note = form.save(commit=False)

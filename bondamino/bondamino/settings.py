@@ -18,7 +18,7 @@ Environment variables (defaults and meaning are documented in INSTALL.md, sectio
     CSRF_TRUSTED_ORIGINS: Allowed form origins; derived from ALLOWED_HOSTS if empty.
     DATABASE_URL, CONN_MAX_AGE: Database connection (see config.parse_database_url).
     MEDIA_ROOT, STATIC_ROOT: Directories for uploaded PDB files and collected static files.
-    TIME_ZONE: Time zone used for display.
+    TIME_ZONE: Default time zone for display (users can choose their own in their settings).
     EMAIL_BACKEND, EMAIL_HOST, EMAIL_PORT, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD,
         EMAIL_USE_TLS, EMAIL_USE_SSL, DEFAULT_FROM_EMAIL: Sending of invitation and
         password reset emails.

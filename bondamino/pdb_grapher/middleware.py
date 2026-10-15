@@ -1,15 +1,34 @@
-"""Language selection for each request.
+"""Language and time zone selection for each request.
 
 Bondamino replaces Django's ``LocaleMiddleware`` with ``LanguageMiddleware`` so that only languages created in the
 admin (``models.Language``) can be activated, and so that the language stored in the user's settings takes
-precedence over cookie and browser.
+precedence over cookie and browser. The same middleware activates the user's time zone, so that dates and times in
+templates are shown in it.
 """
+import zoneinfo
+
 from django.conf import settings
-from django.utils import translation
+from django.utils import timezone, translation
 from django.utils.cache import patch_vary_headers
 from django.utils.translation.trans_real import parse_accept_lang_header
 
 from .models import Language, UserSettings
+
+
+def activate_time_zone(name):
+    """Activates the time zone ``name`` for the current request, or the server default if empty or unknown.
+
+    Args:
+        name: IANA time zone name from the user's settings, or ''.
+    """
+    if not name:
+        timezone.deactivate()
+        return
+    try:
+        timezone.activate(zoneinfo.ZoneInfo(name))
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+        # E.g. a name entered by hand in the admin, or removed from the time zone database
+        timezone.deactivate()
 
 
 def select_language(request, codes, preferred=''):
@@ -46,6 +65,8 @@ def select_language(request, codes, preferred=''):
 class LanguageMiddleware:
     """Replaces Django's LocaleMiddleware: only languages created in the admin are activated.
 
+    Also activates the time zone from the user's settings (``activate_time_zone``).
+
     Stores the available languages and the user's settings on the request as ``available_languages`` and
     ``user_settings`` (exposed to templates by ``context_processors.languages``, e.g. for the navbar). Must come
     after the AuthenticationMiddleware in ``MIDDLEWARE`` because the settings belong to the user.
@@ -61,6 +82,7 @@ class LanguageMiddleware:
         language = select_language(request, [lang.code for lang in request.available_languages], preferred)
         translation.activate(language)
         request.LANGUAGE_CODE = translation.get_language()
+        activate_time_zone(request.user_settings.time_zone if request.user_settings else '')
 
         response = self.get_response(request)
         # The response depends on the browser language and the language cookie, so caches must not mix them up

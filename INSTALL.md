@@ -257,7 +257,8 @@ You need [Python](#python) and [Git](#git).
    pip install -r requirements.txt
    ```
 
-   Expected at the end: `Successfully installed Django-5.2... whitenoise-...`.
+   Expected at the end: `Successfully installed Django-5.2... tzdata-... whitenoise-...`.
+   (`tzdata` is the time zone database; Windows has none of its own.)
 
 4. Run the [guided setup](#the-guided-setup-in-detail):
 
@@ -272,10 +273,10 @@ You need [Python](#python) and [Git](#git).
    |---|---|
    | Database | `1` (SQLite) |
    | Database file | `Enter` (`db.sqlite3`) |
-   | Domain(s) | `localhost,127.0.0.1` |
+   | Domain(s) | `Enter` (`localhost`; `127.0.0.1` is added automatically) |
    | HTTPS | `n` |
    | Development mode (DEBUG) | `y` |
-   | Time zone | `Enter`, or e.g. `Europe/London` |
+   | Default time zone | `Enter` (`UTC`), or e.g. `Europe/London` |
    | Sending (email) | `2` (print emails in the console) |
    | Write ...? | `y` |
 
@@ -320,11 +321,9 @@ You need [Docker](#docker) and, recommended, [Git](#git).
    ADMIN_USERNAME=admin
    ADMIN_EMAIL=you@example.org
    ADMIN_PASSWORD=a-long-password-of-your-choice
-   EMAIL_BACKEND=
    ```
 
-   Emptying `EMAIL_BACKEND` makes Bondamino print emails into its log instead of trying to send
-   them (the template is prepared for a real mail server).
+   `EMAIL_BACKEND` stays empty, so Bondamino prints emails into its log instead of sending them.
 
 3. Build the image and start Bondamino with SQLite:
 
@@ -498,7 +497,7 @@ For a server, answer:
 | Domain(s) | `bondamino.example.org` |
 | HTTPS | `y` (nginx will provide HTTPS in step 7) |
 | Development mode (DEBUG) | `n` |
-| Time zone | e.g. `Europe/Berlin` |
+| Default time zone | e.g. `Europe/Berlin` (or `Enter` for `UTC`) |
 | Email | `1` (SMTP) with the data of your mail server, and send a test email to yourself |
 
 All questions are explained in [The guided setup in detail](#the-guided-setup-in-detail). The
@@ -692,10 +691,10 @@ characters in user and password are encoded automatically.
 
 | Question | Meaning |
 |---|---|
-| Domain(s) under which Bondamino is reached | The host names that appear in the browser's address bar, comma-separated, e.g. `bondamino.example.org`. Requests for any other name are rejected with "400 Bad Request". For a try-out: `localhost,127.0.0.1`. |
+| Domain(s) under which Bondamino is reached | The host names that appear in the browser's address bar, comma-separated, e.g. `bondamino.example.org`. Requests for any other name are rejected with "400 Bad Request". For a try-out: `localhost`. If the list contains `localhost`, the setup adds `127.0.0.1` automatically. |
 | Is Bondamino served via HTTPS (through a reverse proxy)? | `y` if a reverse proxy provides HTTPS (the normal case on a server). Cookies are then only sent over HTTPS, and the proxy's information about protocol and client address is trusted. `n` for a try-out on `http://localhost`. |
 | Development mode (DEBUG)? | `n` on every server. `y` shows detailed error pages with internal information; only for a try-out or development. |
-| Time zone | Used to display dates and times, e.g. `Europe/Berlin`, `Europe/London`, `America/New_York` (names from the IANA time zone database). |
+| Default time zone | Used to display dates and times, e.g. `UTC` (the default), `Europe/Berlin`, `Europe/London`, `America/New_York` (names from the IANA time zone database). An unknown name is rejected and the question is asked again. Each user can choose their own time zone in their account settings; this is the default for everybody who has not. |
 
 **3. Email (invitations, forgotten passwords)**
 
@@ -978,18 +977,19 @@ to the Compose file automatically. Write values without quotes.
 | Variable | What to enter |
 |---|---|
 | `DB_PASSWORD` | Password for the database user (not needed for SQLite). **Letters and digits only**, because it becomes part of a URL. Generate one with `python3 -c "import secrets; print(secrets.token_hex(24))"`, `openssl rand -hex 24`, or in PowerShell `[guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')`. It is set when the database is created on the first start; changing it later does not change the password inside the existing database (see [troubleshooting](#database-not-reachable)). |
-| `ALLOWED_HOSTS` | The domain(s) under which Bondamino is reached, e.g. `bondamino.example.org`. Add `localhost` if you also open it on the host itself. |
+| `ALLOWED_HOSTS` | The domain(s) under which Bondamino is reached, e.g. `bondamino.example.org`. The default `localhost,127.0.0.1` is enough for opening it on the host itself; add these two to your domain if you also want that on a server. |
 | `HTTPS` | `1` when a reverse proxy provides HTTPS (normal on a server), `0` for plain `http://localhost`. |
-| `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | The first administrator, created on the first start if there is no administrator yet. The password is not checked for strength, so choose a long one. Remove `ADMIN_PASSWORD` after the first start (see [step 5](#step-5-after-the-first-start)). |
-| `EMAIL_*`, `DEFAULT_FROM_EMAIL` | Your mail server (see the [reference](#email)). To only print emails into the log, set `EMAIL_BACKEND=` (empty). The template is prepared for an SMTP server with STARTTLS on port 587; with `EMAIL_BACKEND` set to SMTP and no `EMAIL_HOST`, sending fails. Note that `localhost` inside a container is the container itself, not the host. |
-| `TIME_ZONE` | e.g. `Europe/Berlin` (the default in the Compose files) |
-| `BONDAMINO_PORT` | Port on the host, default `8000`. Behind a reverse proxy on the same host use `127.0.0.1:8000`, so that Bondamino is only reachable through the proxy. |
+| `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | The first administrator, created on the first start if there is no administrator yet. A weak password is accepted, with a warning in the log, so choose a long one. Remove `ADMIN_PASSWORD` after the first start (see [step 5](#step-5-after-the-first-start)). |
+| `EMAIL_*`, `DEFAULT_FROM_EMAIL` | Your mail server (see the [reference](#email)). With `EMAIL_BACKEND` empty (the template's default), emails are only printed into the log. To send them, set `EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend` and fill in `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` and `DEFAULT_FROM_EMAIL` (the template is prepared for STARTTLS on port 587). Note that `localhost` inside a container is the container itself, not the host. |
+| `TIME_ZONE` | Default time zone for dates and times, e.g. `Europe/Berlin`; the default is `UTC`. Users can choose their own in their account settings. |
+| `BONDAMINO_PORT` | Address and port on the host. The default `127.0.0.1:8000` makes Bondamino reachable only from the host itself, which is right for a reverse proxy on the same host and for a try-out. `8000` makes it reachable from other computers too (without a proxy); **never combine this with `HTTPS=1`**, because then clients could bypass the proxy and forge the `X-Forwarded-For` header used for limiting sign-in attempts. |
+| `GUNICORN_WORKERS`, `GUNICORN_TIMEOUT` | Number of web server processes (default `3`) and request timeout in seconds (default `120`). |
+| `LOG_LEVEL`, `CONN_MAX_AGE` | Amount of logging (default `WARNING`) and how long a database connection is reused (default `60` seconds); see the [reference](#configuration-reference). |
 | `SECRET_KEY` | Leave empty: a key is generated on the first start and stored in the data volume. |
 
-`DATABASE_URL` is set by the Compose file; the line in `.env` is ignored. `DEBUG` is not passed to
-the container either (it is always off). Only the variables listed in the `environment:` section
-of the Compose file reach Bondamino; to set others (e.g. `LOG_LEVEL`, `GUNICORN_WORKERS`), see
-[Additional variables](#additional-variables).
+`DATABASE_URL` is set by the Compose file; the line in `.env` is ignored. `DEBUG` is passed and
+must stay `0`. Only the variables listed in the `environment:` section of the Compose file reach
+Bondamino; to set others (e.g. `HTTPS_PROXY`), see [Additional variables](#additional-variables).
 
 ### Step 3: Start
 
@@ -1055,17 +1055,17 @@ data is kept. Continue with [After the installation](#after-the-installation).
 
 ### Additional variables
 
-The Compose files pass only selected variables to the container. To set others, such as
-`LOG_LEVEL`, `CONN_MAX_AGE`, `GUNICORN_WORKERS`, `GUNICORN_TIMEOUT` or a proxy for outgoing
-connections (`HTTPS_PROXY`), create a file `docker-compose.override.yml` next to
-`docker-compose.yml` instead of editing the provided files (so that updates do not conflict):
+The Compose files pass only selected variables to the container: those in `.env.example`
+(including `DEBUG`, `LOG_LEVEL`, `CONN_MAX_AGE`, `GUNICORN_WORKERS` and `GUNICORN_TIMEOUT`, which
+you simply set in `.env`). To set others, such as a proxy for outgoing connections
+(`HTTPS_PROXY`), create a file `docker-compose.override.yml` next to `docker-compose.yml` instead
+of editing the provided files (so that updates do not conflict):
 
 ```yaml
 services:
   bondamino:
     environment:
-      LOG_LEVEL: INFO
-      GUNICORN_WORKERS: "4"
+      HTTPS_PROXY: http://proxy.example.org:3128
 ```
 
 Compose reads `docker-compose.override.yml` automatically together with `docker-compose.yml`.
@@ -1110,7 +1110,8 @@ Portainer downloads the repository and builds the image from the `Dockerfile`.
 3. **Environment variables:** add the variables from
    [Docker Compose step 2](#step-2-configure) (`DB_PASSWORD`, `ALLOWED_HOSTS`, `HTTPS`,
    `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `EMAIL_*`, `DEFAULT_FROM_EMAIL`,
-   `TIME_ZONE`, `BONDAMINO_PORT`). **Advanced mode** lets you paste them as `NAME=value` lines;
+   `TIME_ZONE`, `BONDAMINO_PORT` and, if needed, `GUNICORN_WORKERS`, `GUNICORN_TIMEOUT`,
+   `LOG_LEVEL`, `CONN_MAX_AGE`). **Advanced mode** lets you paste them as `NAME=value` lines;
    **Load variables from .env file** reads a prepared file. Also add
 
    ```ini
@@ -1123,8 +1124,8 @@ Portainer downloads the repository and builds the image from the `Dockerfile`.
 4. **Deploy the stack.** Building takes a few minutes. A message that the image could not be
    pulled is expected; the image is then built.
 5. Check: **Containers → bondamino-bondamino-1 → Logs** should end with
-   `Listening at: http://0.0.0.0:8000`. Bondamino listens on port 8000 of the host (or
-   `BONDAMINO_PORT`).
+   `Listening at: http://0.0.0.0:8000`. Bondamino listens on port 8000 of the host, by default
+   only for the host itself (`127.0.0.1:8000`; see `BONDAMINO_PORT`).
 6. Remove `ADMIN_PASSWORD` in the stack's environment variables and click **Update the stack**.
 
 ### Web editor method
@@ -1180,7 +1181,7 @@ If the maintainer has published the prebuilt image, `registry.gitlab.com/d11m-gr
 | Volume | `/data`: uploaded PDB files (`/data/media`), the generated secret key (`/data/secret_key`) and, without `DATABASE_URL`, the SQLite database (`/data/db.sqlite3`) |
 | User | runs as user ID 1000 (`bondamino`); a mounted `/data` must be writable for it (Kubernetes: `fsGroup: 1000`) |
 | Configuration | environment variables from the [reference](#configuration-reference); for PostgreSQL or MariaDB set `DATABASE_URL`, otherwise SQLite in `/data` is used |
-| First administrator | `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD`; created only while there is no administrator |
+| First administrator | `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD`; created only while there is no administrator. A weak password and a user name that already belongs to a normal user only produce a warning in the log; the container keeps running |
 | Start-up | applies pending migrations on every start and creates the cache table; waits up to about 60 seconds for the database, then exits with "Database not reachable, giving up." |
 | Other commands | arguments given to the container are run instead of gunicorn after the preparation, e.g. `python manage.py createsuperuser` |
 | Web server tuning | `GUNICORN_WORKERS` (default `3`), `GUNICORN_TIMEOUT` (default `120` seconds) |
@@ -1242,7 +1243,8 @@ groups on their user page. How groups are used is described in the [tutorial](TU
 ### Languages
 
 German and English are created during installation and are offered in the language selection.
-Under **Languages (Sprachen)** you can rename or remove them. Only German and English
+Under **Languages (Sprachen)** you can rename or remove them (without any language, the language
+field disappears from the users' account settings and the default language applies). Only German and English
 translations are included; other languages would need translation files (see
 [DOCUMENTATION.md](DOCUMENTATION.md)).
 
@@ -1258,7 +1260,7 @@ translations are included; other languages would need translation files (see
   An error message (e.g. `SMTPAuthenticationError`, `Connection refused`) shows what is wrong.
 - Then create a test user with your own email address and check that the invitation arrives
   (also in the spam folder).
-- With the console backend (`EMAIL_BACKEND` empty or `...console.EmailBackend`), emails are
+- With the console backend (`EMAIL_BACKEND` empty, the default, or `...console.EmailBackend`), emails are
   written to the log instead: `sudo journalctl -u bondamino` (systemd),
   `C:\Bondamino\logs\bondamino.log` (Windows), `docker compose logs bondamino` (Docker). For a
   try-out you can copy the invitation link from there.
@@ -1270,8 +1272,9 @@ translations are included; other languages would need translation files (see
 - Invitation links must start with `https://` and your domain. If they start with `http://` or
   contain `127.0.0.1`, the proxy does not pass the `Host` or `X-Forwarded-Proto` header (or, on
   Windows, waitress lacks the `--trusted-proxy` options).
-- Make sure Bondamino's port 8000 is not reachable from outside (bind it to `127.0.0.1`), so that
-  nobody can bypass the proxy and forge the `X-Forwarded-For` header.
+- Make sure Bondamino's port 8000 is not reachable from outside (bound to `127.0.0.1`, the
+  default of `BONDAMINO_PORT` in Docker Compose), so that nobody can bypass the proxy and forge
+  the `X-Forwarded-For` header.
 - Standalone: `python manage.py check --deploy` lists security settings. The warnings
   `security.W004` (HSTS) and `security.W008` (redirect to HTTPS) are expected, because the proxy
   handles both. Other warnings should be looked at.
@@ -1302,12 +1305,12 @@ without quotes. An empty value counts as not set, so the default applies. Yes/no
 |---|---|---|
 | `SECRET_KEY` | none (Docker: generated) | Long random value that signs sessions and password links. Keep it secret. Bondamino does not start without it. The setup generates one; in Docker it is generated on the first start and stored in `/data/secret_key`. Changing it signs out all users and invalidates open invitation links, but not the passwords. |
 | `SECRET_KEY_FILE` | none (Docker: `/data/secret_key`) | File that contains the secret key; used if `SECRET_KEY` is empty. |
-| `DEBUG` | `0` | `1` = development mode with detailed error pages. Never on a server that others can reach. Not passed to the container by the Compose files. |
-| `ALLOWED_HOSTS` | with `DEBUG=1`: `localhost,127.0.0.1,[::1]`; otherwise none (Compose files: `localhost`) | Host names under which Bondamino is reached, comma-separated, e.g. `bondamino.example.org,localhost`. A leading dot allows all subdomains (`.example.org`). Requests for other names get "400 Bad Request". Links in emails use the name under which the page was requested, so the public domain must be listed and the proxy must pass it on. |
+| `DEBUG` | `0` | `1` = development mode with detailed error pages. Never on a server that others can reach. |
+| `ALLOWED_HOSTS` | with `DEBUG=1`: `localhost,127.0.0.1,[::1]`; otherwise none (Compose files: `localhost,127.0.0.1`) | Host names under which Bondamino is reached, comma-separated, e.g. `bondamino.example.org,localhost`. A leading dot allows all subdomains (`.example.org`). Requests for other names get "400 Bad Request". Links in emails use the name under which the page was requested, so the public domain must be listed and the proxy must pass it on. |
 | `HTTPS` | `0` | `1` = Bondamino is served via HTTPS through a reverse proxy: session and CSRF cookies are only sent over HTTPS, `X-Forwarded-Proto: https` marks a request as secure, and the client address for limiting sign-in attempts is taken from the last entry of `X-Forwarded-For`. |
 | `CSRF_TRUSTED_ORIGINS` | derived from `ALLOWED_HOSTS` (`https://<host>` with `HTTPS=1`, otherwise `http://<host>`) | Origins from which forms may be submitted. Only needed if the proxy changes the host name or port, e.g. `https://bondamino.example.org`. Must include the scheme. |
-| `TIME_ZONE` | `UTC` (setup and Compose files: `Europe/Berlin`) | Time zone for displaying dates and times, e.g. `Europe/Berlin`. |
-| `LOG_LEVEL` | `WARNING` | Level of the console log: `DEBUG`, `INFO`, `WARNING`, `ERROR`. Not passed to the container by the Compose files. |
+| `TIME_ZONE` | `UTC` | Default time zone for displaying dates and times, as an IANA name, e.g. `Europe/Berlin`. Each user can choose their own time zone in their account settings; this one applies to everybody who has not. |
+| `LOG_LEVEL` | `WARNING` | Level of the console log: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
 | `BONDAMINO_ENV_FILE` | `bondamino/.env` | Standalone: path of the configuration file to read instead. |
 
 ### Database
@@ -1364,7 +1367,7 @@ Emails are used for invitations and forgotten passwords.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `EMAIL_BACKEND` | `django.core.mail.backends.console.EmailBackend` | `django.core.mail.backends.smtp.EmailBackend` sends emails via SMTP; the console backend only prints them into the log. |
+| `EMAIL_BACKEND` | `django.core.mail.backends.console.EmailBackend` (also when empty, as in `.env.example`) | `django.core.mail.backends.smtp.EmailBackend` sends emails via SMTP with the values below; the console backend only prints them into the log. |
 | `EMAIL_HOST` | `localhost` | SMTP server |
 | `EMAIL_PORT` | `25` | SMTP port: usually `587` (STARTTLS), `465` (SSL/TLS) or `25` |
 | `EMAIL_HOST_USER` | empty | SMTP user name; empty if the server needs no login |
@@ -1378,15 +1381,16 @@ Emails are used for invitations and forgotten passwords.
 | Variable | Default | Meaning |
 |---|---|---|
 | `DB_PASSWORD` | none (required for PostgreSQL/MariaDB) | Compose: password of the database user; letters and digits only. Only used when the database volume is created. |
-| `BONDAMINO_PORT` | `8000` | Compose: port on the host, optionally with address, e.g. `127.0.0.1:8000`. |
+| `BONDAMINO_PORT` | `127.0.0.1:8000` | Compose: address and port on the host. The default is only reachable from the host itself (for a reverse proxy on the same host). `8000` makes Bondamino reachable from other computers without a proxy; never use that together with `HTTPS=1`, because clients could then forge the `X-Forwarded-For` header. |
 | `BONDAMINO_IMAGE` | `registry.gitlab.com/d11m-group/bondamino:latest` | Compose: name of the image to use or to build, e.g. `bondamino-local:1`. |
 | `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | empty | Compose: first administrator; passed to the container as the three variables below. |
-| `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD` | empty | Container: first administrator, created at start if user name and password are set and no administrator exists yet. |
-| `GUNICORN_WORKERS` | `3` | Container: number of web server processes. Not passed by the Compose files (see [Additional variables](#additional-variables)). |
-| `GUNICORN_TIMEOUT` | `120` | Container: seconds before a request is aborted. Not passed by the Compose files. |
+| `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD` | empty | Container: first administrator, created at start if user name and password are set and no administrator exists yet. A weak password is accepted with a warning in the log. If the user name already belongs to a normal user, nothing is created and a warning is logged. |
+| `GUNICORN_WORKERS` | `3` | Container: number of web server processes. |
+| `GUNICORN_TIMEOUT` | `120` | Container: seconds before a request is aborted. |
 
 The Compose files pass these variables to the container: `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`,
-`HTTPS`, `TIME_ZONE`, `SECRET_KEY`, all `EMAIL_*` variables, `DEFAULT_FROM_EMAIL` and the
+`HTTPS`, `TIME_ZONE`, `DEBUG`, `LOG_LEVEL`, `CONN_MAX_AGE`, `GUNICORN_WORKERS`,
+`GUNICORN_TIMEOUT`, `SECRET_KEY`, all `EMAIL_*` variables, `DEFAULT_FROM_EMAIL` and the
 administrator variables. `DATABASE_URL` is fixed in each Compose file.
 
 ---
@@ -1702,8 +1706,10 @@ Then delete the folder with the repository.
 - **DEBUG off.** `DEBUG=1` shows internal information on error pages. Never use it on a server.
 - **HTTPS only.** Run Bondamino behind a reverse proxy with HTTPS, redirect HTTP to HTTPS and send
   HSTS from the proxy. Bind Bondamino's port 8000 to `127.0.0.1` or block it in the firewall.
-  With Docker, published ports bypass host firewalls such as `ufw`, so use
-  `BONDAMINO_PORT=127.0.0.1:8000`.
+  With Docker, published ports bypass host firewalls such as `ufw`, so keep the default
+  `BONDAMINO_PORT=127.0.0.1:8000`. If you set `BONDAMINO_PORT=8000` to reach Bondamino from other
+  computers without a proxy, keep `HTTPS=0`: with `HTTPS=1` clients could forge the
+  `X-Forwarded-For` header and get around the sign-in limits.
 - **Upload size.** Limit the request body in the proxy to about 25 MB (Bondamino accepts PDB files
   up to 20 MB).
 - **Passwords and invitations.** Invitation and reset links are valid for 24 hours and only once.
@@ -1810,7 +1816,7 @@ allocated": another program uses port 8000, often a second Bondamino or another 
 server. Find it with `sudo ss -tlnp | grep 8000` (Linux), `lsof -i :8000` (macOS) or
 `Get-NetTCPConnection -LocalPort 8000` (Windows), stop it, or use another port: standalone
 `--bind 127.0.0.1:8001` (gunicorn), `--listen=127.0.0.1:8001` (waitress) or
-`python manage.py runserver 8001`, and adjust the proxy; Docker `BONDAMINO_PORT=8001`.
+`python manage.py runserver 8001`, and adjust the proxy; Docker `BONDAMINO_PORT=127.0.0.1:8001`.
 
 ### Permission errors
 
@@ -1857,7 +1863,14 @@ Docker, whose image contains both drivers.
 - **"502 Bad Gateway" or "504 Gateway Timeout"** from the proxy: Bondamino is not running or not
   listening on the address the proxy uses; check the service and the log.
 - **Docker container restarts repeatedly**: look at `docker compose logs bondamino`; typical
-  causes are an unreachable database, missing write permission on `/data`, or an
-  `ADMIN_USERNAME` that already exists as a normal user.
+  causes are an unreachable database or missing write permission on `/data`.
+- **No administrator was created (Docker)**: the log shows a warning, e.g. that the user
+  `ADMIN_USERNAME` already exists but is no administrator. Give that user administrator rights
+  (`docker compose exec bondamino python manage.py createsuperuser` creates another one), or
+  choose another `ADMIN_USERNAME` and restart with `docker compose up -d`.
+- **Not reachable from other computers (Docker)**: by default the port is bound to `127.0.0.1`,
+  i.e. only the host itself can open Bondamino. Put a [reverse proxy](#reverse-proxy-and-https)
+  in front, or set `BONDAMINO_PORT=8000` (only with `HTTPS=0`) and add the server's name or IP
+  address to `ALLOWED_HOSTS`.
 - **Signed out after every restart (Docker)**: the secret key is not kept because `/data` is not
   a persistent volume. Mount a volume or set `SECRET_KEY`.

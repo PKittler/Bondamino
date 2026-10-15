@@ -33,13 +33,34 @@ done
 # Cache table for the sign-in throttling counters (no-op if it already exists)
 python manage.py createcachetable
 
-# First administrator from DJANGO_SUPERUSER_USERNAME/_EMAIL/_PASSWORD, if no superuser exists yet
+# First administrator from DJANGO_SUPERUSER_USERNAME/_EMAIL/_PASSWORD, if no superuser exists yet.
+# Problems only produce a warning: a failing start would make the container restart endlessly.
 if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && [ -n "$DJANGO_SUPERUSER_PASSWORD" ]; then
-    python manage.py shell -c "
+    python manage.py shell <<'PY' || echo "Warning: the first administrator could not be created." >&2
+import os
 from django.contrib.auth import get_user_model
-import sys
-sys.exit(0 if get_user_model().objects.filter(is_superuser=True).exists() else 1)
-" || python manage.py createsuperuser --noinput
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.utils import translation
+
+translation.activate('en')
+User = get_user_model()
+name = os.environ['DJANGO_SUPERUSER_USERNAME']
+email = os.environ.get('DJANGO_SUPERUSER_EMAIL', '')
+password = os.environ['DJANGO_SUPERUSER_PASSWORD']
+if User.objects.filter(is_superuser=True).exists():
+    pass
+elif User.objects.filter(username=name).exists():
+    print(f'Warning: the user "{name}" already exists but is no administrator; ADMIN_USERNAME is ignored. '
+          'Give the user administrator rights or choose another ADMIN_USERNAME.')
+else:
+    try:
+        validate_password(password, User(username=name, email=email))
+    except ValidationError as error:
+        print('Warning: ADMIN_PASSWORD is weak: ' + ' '.join(error.messages))
+    User.objects.create_superuser(name, email, password)
+    print('Superuser created successfully.')
+PY
 fi
 
 # Run a command given as container arguments instead of the web server

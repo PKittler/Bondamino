@@ -65,6 +65,8 @@ class UserSettings(models.Model):
         user: The user these settings belong to.
         language: Code of a ``Language``; empty means "use cookie or browser".
         theme: ``THEME_LIGHT`` or ``THEME_DARK``.
+        time_zone: IANA time zone name (e.g. ``Europe/Berlin``) in which dates and times are shown to the
+            user; empty means the server's ``TIME_ZONE``. Activated by ``middleware.LanguageMiddleware``.
     """
     THEME_LIGHT = 'light'
     THEME_DARK = 'dark'
@@ -76,6 +78,8 @@ class UserSettings(models.Model):
     # Code of a language created in the admin; empty = cookie or browser
     language = models.CharField(_('Sprache'), max_length=15, blank=True)
     theme = models.CharField(_('Darstellung'), max_length=10, choices=THEME_CHOICES, default=THEME_LIGHT)
+    # IANA name; empty = settings.TIME_ZONE
+    time_zone = models.CharField(_('Zeitzone'), max_length=64, blank=True)
 
     class Meta:
         verbose_name = _('Einstellungen')

@@ -108,6 +108,10 @@ stays the first output.
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% translate 'Schließen' %}"></button>
         </div>
     {% endfor %}
+    {# Messages created by JavaScript (showClientMessage below), fixed so they stay visible while scrolled #}
+    <div id="client-messages" class="client-messages position-fixed top-0 end-0 p-3" aria-live="polite"
+         data-close-label="{% translate 'Schließen' %}"
+         data-theme-error="{% translate 'Die Darstellung konnte nicht gespeichert werden.' %}"></div>
     {% block content %}{% endblock %}
 </main>
 
@@ -124,6 +128,24 @@ stays the first output.
 </script>
 <script src="{% static_v 'pdb_grapher/vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
 <script>
+    // Shows a dismissible message in #client-messages, styled like the Django messages above.
+    // Used by page scripts for errors that happen without a page load (AJAX, exports).
+    function showClientMessage(text, level) {
+        const container = document.getElementById('client-messages');
+        if (!container) return;
+        const alert = document.createElement('div');
+        alert.className = 'alert alert-' + (level || 'danger') + ' alert-dismissible fade show shadow-sm';
+        alert.setAttribute('role', 'alert');
+        alert.textContent = text;
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'btn-close';
+        close.setAttribute('data-bs-dismiss', 'alert');
+        close.setAttribute('aria-label', container.dataset.closeLabel);
+        alert.appendChild(close);
+        container.appendChild(alert);
+    }
+
     function applyTheme(theme) {
         document.documentElement.setAttribute('data-bs-theme', theme);
         try { localStorage.setItem('theme', theme); } catch (e) { /* ignore */ }
@@ -150,7 +172,11 @@ stays the first output.
             data.set('theme', theme);
             applyTheme(theme);
             fetch(themeForm.action, { method: 'POST', body: data, headers: { 'X-Requested-With': 'fetch' } })
-                .catch(function (err) { console.error('Darstellung konnte nicht gespeichert werden:', err); });
+                .then(function (response) { if (!response.ok) throw new Error('HTTP ' + response.status); })
+                .catch(function (err) {
+                    console.error('Theme could not be saved:', err);
+                    showClientMessage(document.getElementById('client-messages').dataset.themeError);
+                });
         });
     }
 

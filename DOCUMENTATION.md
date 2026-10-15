@@ -144,7 +144,7 @@ the account menu:
 | **Account** | Opens the [account page](#account-page) |
 | **Language** | One entry per available language; the selected one is ticked. Choosing one switches the interface and saves the choice in your settings. Shown only if the administrator has set up more than one language. |
 | **Display**: **Light**, **Dark** | Switches between light and dark colours immediately and saves the choice in your settings. |
-| **Log out** | Signs you out and returns to the sign-in page. |
+| **Sign out** | Signs you out and returns to the sign-in page. |
 
 When you are not signed in, the bar shows a moon button (**Toggle dark mode**, remembered only in
 this browser) and, if more than one language is set up, a language selector.
@@ -154,7 +154,7 @@ chosen in this browser, your browser's preferred languages, German, the first la
 
 ### Sign-in page
 
-Fields **Username** and **Password**, button **Log in**, and the link **Forgotten your password?**.
+Fields **Username** and **Password**, button **Sign in**, and the link **Forgotten your password?**.
 After signing in you reach the start page (or the page you originally wanted to open).
 
 Failed attempts are limited (see [Limits](#limits-and-behaviour-worth-knowing)). While a lock is
@@ -207,6 +207,9 @@ Clicking the file name opens the [detail page](#detail-page-header).
 | **Visible to** | A grey badge **personal** if the file is personal, and one blue badge per working group it is shared with. If you lead that group, the badge has a small "×" (**Remove from group**); after a confirmation the file is removed from the group (and deleted if it is then available nowhere). |
 | **Uploaded** | Date and time of the upload |
 | **Latest note** | Date and time of the newest note on this file that you may read, or "–" |
+
+Dates and times everywhere in Bondamino are shown in the time zone chosen on your
+[account page](#account-page), or in the server's default time zone if you have not chosen one.
 
 If nothing matches, the list shows "No PDB files yet." or "No PDB files for this selection."
 
@@ -269,7 +272,8 @@ The top row contains:
 Changing the model or conformation reloads the data and redraws all tabs. While loading, both
 selectors are disabled. Changing the conformation also recomputes the [statistics over all
 models](#statistics-over-all-models), because they depend on it. If loading fails, the display
-stays unchanged.
+stays unchanged, the selectors return to the model and conformation still shown, and the message
+"The model or conformation could not be loaded." appears at the top right of the page.
 
 The structure information from the file header (method, resolution, R values) is shown in the
 **Statistics** tab under **General**.
@@ -339,11 +343,11 @@ length in Å next to it (hidden where the bond is drawn very short).
 | **Reference** | Bond colour by the deviation from the reference value, in standard deviations (see [Z-score](#z-score-rmsz-warnings-and-outliers)): green for \|Z\| ≤ 2, orange for 2 < \|Z\| ≤ 4, red for \|Z\| > 4 (outlier), grey for bonds without reference value |
 | **B-factor** | Atoms and bonds coloured by B-factor, from blue (low) via violet to red (high); a bond gets the mean B-factor of its two atoms (see [colour scales](#colour-scales)) |
 | **Schematic** | Fixed grid: every residue band has the same height and all bonds have the same drawn length, independent of the real bond lengths |
-| **Proportional** | Drawn bond lengths are proportional to the real bond lengths (55 pixels per Å). This holds exactly for the backbone, for unbranched side-chain segments and for rings; at branch points the branches are spread vertically, so these bonds are drawn somewhat longer. |
+| **Proportional** | Drawn bond lengths are proportional to the real bond lengths (55 pixels per Å). This holds exactly for all backbone, side-chain (including branches and rings) and peptide bonds; at branch points the branches are spread vertically, with each bond tilted by at most 70°. Ligand bonds (a 2D projection of the 3D shape) and disulfide bridges (brackets between the bands) are not drawn to scale. |
 | Circular arrow (**Reset zoom**) | Returns to the original zoom level and position |
 
 Switching style or layout animates the change. Bondamino remembers your style and layout in this
-browser.
+browser (not if the browser blocks local storage for the site).
 
 **Navigating the graph**
 
@@ -418,15 +422,18 @@ Hovering over a column heading explains it.
 | **Element** | Element symbol |
 | **Charge** | Formal charge |
 
-For the **Average** model, coordinates, occupancy and B-factor are the averages over all models.
+For the **Average** model, coordinates, occupancy and B-factor are the means over all models.
 
 ### Statistics tab
 
 All numbers refer to the displayed model and conformation, except the rows marked **All models**
-and the **Average (Å)** and **Median (Å)** columns of **Shortest and longest bond**, which cover all
+and the **Mean (Å)** and **Median (Å)** columns of **Shortest and longest bond**, which cover all
 models.
 Tables with a small arrow in a row can be expanded by clicking the row; they stay expanded when you
-change the model.
+change the model. Rows of the outlier tables (bond and bond-angle **Outliers (|Z| > 4)**,
+Ramachandran **Outliers** and the list of peptide bonds that are not trans) are links: clicking a
+row (or pressing Enter on it) selects the residue and switches to the **Graph** tab, which scrolls
+to it.
 
 **General**
 
@@ -456,41 +463,47 @@ change the model.
   - A table with one row for the **Backbone** and one row per amino acid for its side chain, each
     with **Count**, **RMSZ** and **Outliers**. Click a row to show its groups: **Bond** (atom pair),
     **Class** (see [reference values](#reference-values)), **Reference (Å)** (mean ± standard
-    deviation), **Count**, **Average (Å)** of the bonds in the structure, **Dev. (Å)** (average
+    deviation), **Count**, **Mean (Å)** of the bonds in the structure, **Dev. (Å)** (mean
     minus reference), **RMSZ**, **Outliers**. RMSZ values above 2 are shown in orange, above 4 in
     red; non-zero outlier counts in red.
   - The sources of the reference values.
   - **Outliers (|Z| > 4)**: every outlier bond, sorted by decreasing \|Z\|, with **Atoms**,
-    **Chain**, **Pos.**, **Amino acid**, **Length (Å)**, **Reference (Å)** and **Z**.
-- **Peptide bonds**: **Existent** and **Non-existent** (**Chain breaks**) relative to
+    **Chain**, **Pos.**, **Amino acid**, **Length (Å)**, **Reference (Å)** and **Z**. Click a row
+    to show the residue in the graph.
+- **Peptide bonds**: **Present** and **Missing** (**Chain breaks**) relative to
   **Theoretically possible** (pairs of consecutive amino acids of the same chain in the file).
 - **Disulfide bridges** (only if present): **Chain**, **Pos.**, **Length (Å)** and **Source**:
   **SSBOND record** or **Distance** (see [disulfide bridges](#disulfide-bridges)).
 - **Shortest and longest bond**: for **All models** (with the model it occurs in) and for the
   **Selected model**: **Model**, **Length (Å)**, **Atoms**, **Chain**, **Pos.**, **Atom no.**,
-  **Amino acid**, and the **Average (Å)** and **Median (Å)** of that same bond over all models,
+  **Amino acid**, and the **Mean (Å)** and **Median (Å)** of that same bond over all models,
   each followed by the difference of this bond from it in parentheses.
 - **Distribution of bond lengths**: a histogram of all bond lengths of the model in bins of 0.01 Å;
   the vertical axis is the share of all bonds. Hover over a column for the bin range, the share and
   the number of bonds.
-- **Bonds by atoms involved**: one row per atom pair (for example N–CA, CB–CG), with **Chains**,
-  **Count**, **Average (Å)**, **Median (Å)**, **Min (Å)**, **Max (Å)** and **Δ Max − Min (Å)**;
-  **Total bonds** at the bottom. Click a row to list every single bond with **Length (Å)**,
-  **Dev. from avg. (Å)**, **Chain**, **Pos.**, **Atom no.** and **Amino acid**; the shortest and
-  longest are marked **Min** and **Max**.
+- **Bonds by atoms involved**: one row per bond type and atom pair, labelled with the type in
+  parentheses (for example "N–CA (Backbone)", "CB–CG (side chain)"; the C–O bonds of a ligand form a
+  group of their own, separate from the backbone C–O), with **Chains** (the chains of both atoms, so
+  a disulfide bridge between two chains lists both), **Count**, **Mean (Å)**, **Median (Å)**,
+  **Min (Å)**, **Max (Å)** and **Δ Max − Min (Å)**; **Total bonds** at the bottom. Click a row to
+  list every single bond with **Length (Å)**, **Dev. from mean (Å)**, **Chain**, **Pos.**,
+  **Atom no.** and **Amino acid**; the shortest and longest are marked **Min** and **Max**.
 
 **Angles**
 
 - **Ramachandran evaluation**: **Assessed amino acids**, **Favoured**, **Allowed** and **Outliers**
   with counts and shares; a table per **Category**; the source of the regions; and a list of
-  **Outliers** with **Chain**, **Pos.**, **Amino acid**, **Category**, φ and ψ.
+  **Outliers** with **Chain**, **Pos.**, **Amino acid**, **Category**, φ and ψ (click a row to show
+  the residue in the graph).
 - **cis and trans peptide bonds**: **Peptide bonds**, **trans**, **cis** (with the number before a
   proline) and **twisted** (see [peptide bond conformation](#peptide-bond-conformation)). If any
   peptide bond is not trans, a table lists them with **Chain**, **Pos.**, **Amino acids**, ω and
-  **Type** (**cis**, **cis (before proline)** or **twisted**). A cis bond that is not before a proline
-  is highlighted in red, because it is unusual.
+  **Type** (**cis**, **cis (before proline)** or **twisted**); click a row to show the residue
+  after the bond in the graph. A modified proline counts as proline. A cis bond that is not before
+  a proline is highlighted in red, because it is unusual.
 - **Deviation from reference values**: the same structure as for bonds, for bond angles in degrees
-  (**Assessed angles**, **Angle**, **Reference (°)**, **Mean (°)**, **Dev. (°)**).
+  (**Assessed angles**, **Angle**, **Reference (°)**, **Mean (°)**, **Dev. (°)**), including the
+  clickable outlier table.
 - **Bond angles**: one row per angle type (for example N–CA–C) with **Count**, **Mean (°)**, **SD (°)**,
   **Min (°)** and **Max (°)**; **Total bond angles** at the bottom. Click a row to list the individual
   angles with **Angle (°)**, **Dev. from mean (°)**, **Chain**, **Pos.**, **Atom no.**, **Amino acid**
@@ -509,7 +522,7 @@ the form `<file name>_<content>_<model>`, for example `1LYZ_statistics_model-1.p
 | Button | Content |
 |---|---|
 | **PDF** | A printable A4 report of the statistics (see below). Option **Individual bonds**: also list every single bond per atom pair (this can run to many pages for large proteins). Bondamino remembers this option in your browser. |
-| **JSON** | All values of the statistics and angle sections in a machine-readable text format. Always contains every individual bond. |
+| **JSON** | All values of the statistics and angle sections in a machine-readable text format. Always contains every individual bond. Each group in `by_atoms` has the bond `type` (`backbone`, `sidechain`, `peptide`, `disulfide` or `ligand`) next to its `atoms` and `chains`; each entry of `omega.non_trans` has `before_proline` (`true` if the residue after the bond is a proline or a modified proline). |
 | CSV **Atoms** | The data table: same columns as the [Data tab](#data-tab) |
 | CSV **Bonds** | One row per bond: chain, position, amino acid, atom name and atom number of both atoms, **Type**, **Length (Å)**, **Reference (Å)**, **σ (Å)**, **Z** |
 | CSV **Bond angles** | One row per bond angle: the three atoms (as above), **Type** (for example N–CA–C), **Angle (°)**, **Reference (°)**, **σ (°)**, **Z** |
@@ -525,13 +538,20 @@ a comma. Lengths have 3 decimals, angles 1 decimal, Z-scores 2 decimals.
 images at double resolution) with light colours and white background. The selected **Category**
 applies: with a category selected, only its points and its regions are exported.
 
+If an export fails, a message appears at the top right of the page ("The PDF could not be
+created.", "The histogram could not be exported." or "The Ramachandran plot could not be
+exported."). The same happens when the regions of a Ramachandran category cannot be loaded ("The
+Ramachandran regions could not be loaded.") and when the light/dark display cannot be saved ("The
+theme could not be saved.").
+
 **PDF report contents**, in this order: title with file name, model and creation date; **General**
 (models, amino acids, atoms, chains, bonds; method, resolution, R-work, R-free if known; elements;
 amino acids); elements and amino acids per chain; **Bonds** (deviation from reference values with
 outliers, peptide bonds, disulfide bridges, shortest and longest bond, histogram, bonds by atoms
-involved, optionally the individual bonds); **Angles** (Ramachandran plot of all categories with
-legend, Ramachandran evaluation and outliers, cis and trans peptide bonds, bond angles, deviation
-from reference values). Each page has a footer with file, model and page number. Because the
+involved with the bond type in parentheses, optionally the individual bonds); **Angles**
+(Ramachandran plot of all categories with legend, Ramachandran evaluation and outliers, cis and
+trans peptide bonds, where "cis (before proline)" follows the same rule as the tab, bond angles,
+deviation from reference values). Each page has a footer with file, model and page number. Because the
 built-in PDF fonts lack Greek letters, the PDF writes "phi", "psi", "omega" and "Delta".
 
 ### Notes tab
@@ -539,9 +559,12 @@ built-in PDF fonts lack Greek letters, the PDF writes "phi", "psi", "omega" and 
 Notes are short texts on a file, for example observations or to-dos.
 
 **Writing a note**: type into the text field ("Write a note …", up to 10,000 characters), choose
-**Visible to**: **Only me** or **Working groups**. With **Working groups**, tick one or more
-**Working group …** boxes. Then click **Save note**. The new note appears in the list without
-reloading the page.
+**Visible to**: **Only me** or **For working groups**. With **For working groups**, tick one or
+more **Working group …** boxes. Only your working groups in which the file is shared are offered
+(members of other groups cannot see the file, and so not the note either); when you edit a note,
+the groups it is already shared with are offered as well. If the file is not shared with any of
+your groups, the box says "The file is not shared with any of your working groups." Then click
+**Save note**. The new note appears in the list without reloading the page.
 
 **List of notes**, newest first, with a filter: **All visible**, **Only me** (notes not shared with
 any group, that is your personal notes) or a working group (notes readable by that group). Each note
@@ -558,8 +581,10 @@ shows:
 **Edit note** turns the text into an editable field with the visibility options; **Save** stores the
 change, **Cancel** discards it.
 
-Notes are deleted together with their file. Only notes you are allowed to read are counted in the
-**Latest note** column of the start page.
+Notes are deleted together with their file. If the file is later removed from a working group, its
+notes stay shared with that group; the members just cannot see them as long as they cannot see the
+file. Only notes you are allowed to read are counted in the **Latest note** column of the start
+page.
 
 ### Account page
 
@@ -570,8 +595,12 @@ Opened via **Account** in the account menu.
 - **Change password**: **Old password**, **New password**, **New password confirmation**, button
   **Change password**. The same password rules apply as when
   [setting a password](#invitation-and-setting-a-password). You stay signed in.
-- **Settings**: **Language** and **Display** (**Light** or **Dark**), button **Save**. These are the
-  same settings as in the account menu.
+- **Settings**: **Language**, **Display** (**Light** or **Dark**) and **Time zone**, button
+  **Save**. Language and display are the same settings as in the account menu. If the administrator
+  has not set up any language, the **Language** field is not shown. **Time zone** lists all time
+  zones by name (for example "Europe/Berlin"); the first entry, **Same as the server (…)**, uses the
+  server's default time zone, named in brackets. All dates and times (upload time, latest note,
+  notes) are shown in the chosen time zone.
 
 ### Administration
 
@@ -591,7 +620,7 @@ described in [INSTALL.md](INSTALL.md).
   invitation to each selected user who has no password yet, has an email address and is active.
   Other selected users are skipped and counted in a warning.
 - The page of an existing user also shows its **Working groups** and its **Settings**
-  (**Language**, **Display**).
+  (**Language**, **Display**, **Time zone**).
 - Deleting a user triggers the clean-up described in
   [What happens when something is deleted](#what-happens-when-something-is-deleted).
 - The Django "Groups" in the same section are permission groups for administrators. They are not
@@ -603,7 +632,7 @@ described in [INSTALL.md](INSTALL.md).
 |---|---|
 | **Languages** | The languages users can choose. Each has a **Language** code and a **Display name** written in the language itself (for example "English"). Translations exist for German (`de`) and British English (`en-gb`). Only languages entered here can be selected. |
 | **Working groups** | **Name**, **Description**, **Group leader** and **Members**. The list shows the number of members and can be searched by group name, leader or member. The leader is added to the members automatically. |
-| **PDB files** | All files, independent of visibility: **File**, **File name**, **Uploaded by**, **Uploaded on**, **Personal**, **Working groups**. Filter by working group and personal; search by file name or uploader. |
+| **PDB files** | All files, independent of visibility: **File**, **File name**, **Uploaded by**, **Uploaded on**, **Personal**, **Working groups**. Filter by working group and personal; search by file name or uploader. A file must stay personal (with an uploader) or shared with at least one working group; otherwise saving is refused ("The file must be available to the uploader personally or to at least one working group. …"). To remove a file, delete it. |
 | **Notes** | All notes: **PDB file**, **Author**, **Text**, **Readable by** (working groups), **Created on**, **Edited on**. Filter by working group; search by text, file name or author. |
 
 ---
@@ -622,7 +651,8 @@ described in [INSTALL.md](INSTALL.md).
 | Password links | Invitation and forgotten-password links are valid for 24 hours and work only once. |
 | Notes | Up to 10,000 characters. |
 | Hydrogen atoms | Read and listed in the data table and the element statistics, but not bonded and not drawn in the graph. |
-| Browser memory | Graph style and layout and the PDF option **Individual bonds** are remembered per browser. |
+| Browser memory | Graph style and layout and the PDF option **Individual bonds** are remembered per browser. If the browser blocks local storage for the site, everything still works, but these choices are not remembered. |
+| Dates and times | Shown in the time zone chosen in the account settings, otherwise in the server's default time zone (set by the administrator; `UTC` unless changed). |
 
 ---
 
@@ -655,12 +685,23 @@ All lengths are in Å, all angles in degrees.
 - The pseudo-model **Average**: atoms and bonds are taken from the first model. Each bond length is
   the mean of the distances between the two atoms over all models in which both atoms exist; in a
   model where a peptide bond is a chain break (C–N > 2.0 Å) that model is left out for this bond.
-  Distances are averaged unrounded and then rounded to 3 decimals. Coordinates, occupancy and
-  B-factor of each atom are averaged over the models in which the atom occurs.
-- In the averaged model, φ, ψ, ω and the bond angles are calculated from the **averaged
-  coordinates**. They are therefore not the mean of the per-model angles. Likewise, the averaged
-  bond lengths are generally not equal to the distances between averaged coordinates. Reference
-  values and residue information are those of the first model.
+  Distances are averaged unrounded and then rounded to 3 decimals.
+- Bond angles and the dihedral angles φ, ψ and ω are calculated in each model and averaged in the
+  same way: over all models in which their atoms exist, leaving out a model if a peptide bond
+  involved is a chain break there. Bond angles are plain means (rounded to 0.01°). Dihedral angles
+  are **circular means**, because the angle scale wraps around at ±180°: with the per-model angles
+  $\theta_k$,
+
+  ```math
+  \bar\theta = \operatorname{atan2}\!\left(\sum_k \sin\theta_k,\;\sum_k \cos\theta_k\right)
+  ```
+
+  so that, for example, −179° and 179° average to 180°, not 0°. The Ramachandran category and region
+  of the averaged model are determined from the averaged φ and ψ (and, for proline, the averaged ω).
+- Coordinates, occupancy and B-factor of each atom are plain means over the models in which the atom
+  occurs. They are used for the **Data** tab, the tooltips and the **B-factor** colouring, but not
+  for any length or angle, because averaging coordinates distorts lengths and angles when the
+  models differ. Reference values and residue information are those of the first model.
 
 ### Alternate conformations
 
@@ -855,7 +896,8 @@ peptide bond. In the **Dihedral angles** CSV, ω is listed with the residue afte
 | 30° to < 150° | **twisted** |
 | ≥ 150° | **trans** |
 
-cis peptide bonds before a proline are common; elsewhere they are rare and are highlighted. The same
+cis peptide bonds before a proline (including a modified proline, by its parent amino acid) are
+common; elsewhere they are rare and are highlighted. The same
 30° limit decides the cis class of the backbone reference values. For the Ramachandran category of
 proline, a wider limit applies (see below).
 
@@ -892,7 +934,7 @@ categories.
 
 For every bond, Bondamino collects its length in every model in which it is formed (with the
 selected conformation). From these unrounded lengths it computes the mean and the median, rounded to
-0.001 Å; these appear as **Average (Å)** and **Median (Å)** in **Shortest and longest bond**. It also
+0.001 Å; these appear as **Mean (Å)** and **Median (Å)** in **Shortest and longest bond**. It also
 finds the single shortest and longest bond over all models and the model in which each occurs
 (**All models**). Files without MODEL records count as one model. The mean over all models equals the
 bond length of the **Average** model.
